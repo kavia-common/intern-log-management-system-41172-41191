@@ -470,14 +470,6 @@ function InternDashboard({ submissions, setSubmissions }) {
           if (!editingSubmission) return;
           updateSubmissionImmediate(editingSubmission.id, patch);
         }}
-        onRemoveFile={(fileId) => {
-          if (!editingSubmission) return;
-          removeExistingFile(editingSubmission.id, fileId);
-        }}
-        onAddFiles={(files) => {
-          if (!editingSubmission) return;
-          addFilesToSubmission(editingSubmission.id, files);
-        }}
       />
     </>
   );
@@ -577,38 +569,42 @@ function SubmissionCard({
     ) : null;
 
   const hasMeeting = Boolean(submission.meeting);
+  // Requirement: when a meeting is scheduled, the entire card becomes soft amber/yellow (visual priority).
   const alertCard = hasMeeting && variant === "mentor";
+
+  // Requirement: all work cards (intern history + mentor cards) use dark teal border + pale teal background.
+  const baseCardTone = "border-tealbrand-800 bg-tealbrand-50";
 
   return (
     <article
       className={cx(
-        "rounded-3xl border shadow-sm transition",
-        alertCard
-          ? "border-amber-200 bg-amber-50"
-          : "border-slate-200 bg-white",
-        variant === "mentor" ? "p-5" : "p-5"
+        "rounded-3xl border-2 shadow-sm transition",
+        alertCard ? "border-amber-300 bg-amber-100" : baseCardTone,
+        "p-5"
       )}
     >
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-black text-slate-900">{submission.title}</h3>
-          <div className="mt-1 text-xs font-semibold text-slate-500">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-black text-slate-900">
+            {submission.title}
+          </h3>
+          <div className="mt-1 text-xs font-semibold text-slate-600">
             {submission.timestampLabel}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {statusBadge}
           {hasMeeting ? <StatusBadge kind="alert" label="Meeting Scheduled" /> : null}
         </div>
       </div>
 
-      <p className="mt-3 text-sm font-semibold text-slate-700">
+      <p className="mt-3 text-sm font-semibold text-slate-800">
         {submission.description}
       </p>
 
       <div className="mt-4 space-y-2">
-        <div className="text-xs font-extrabold uppercase tracking-wide text-slate-500">
+        <div className="text-xs font-extrabold uppercase tracking-wide text-slate-600">
           Files
         </div>
 
@@ -617,13 +613,16 @@ function SubmissionCard({
             {submission.files.map((f) => (
               <li
                 key={f.id}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/70 px-3 py-2"
+                className={cx(
+                  "flex items-center justify-between gap-3 rounded-2xl border bg-white/70 px-3 py-2",
+                  alertCard ? "border-amber-200" : "border-tealbrand-200"
+                )}
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-800">
                     {f.name}
                   </div>
-                  <div className="text-xs font-semibold text-slate-500">
+                  <div className="text-xs font-semibold text-slate-600">
                     {formatBytes(f.size)}
                   </div>
                 </div>
@@ -632,8 +631,9 @@ function SubmissionCard({
                   type="button"
                   onClick={() => downloadPlaceholderFile(f.name)}
                   className={cx(
-                    "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2",
-                    "text-xs font-extrabold text-slate-700 shadow-sm transition hover:bg-slate-50 active:bg-slate-100",
+                    "inline-flex items-center justify-center rounded-xl border bg-white px-3 py-2",
+                    alertCard ? "border-amber-200" : "border-tealbrand-200",
+                    "text-xs font-extrabold text-slate-700 shadow-sm transition hover:bg-white active:bg-slate-50",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
                   )}
                   aria-label={`Download ${f.name}`}
@@ -645,14 +645,28 @@ function SubmissionCard({
             ))}
           </ul>
         ) : (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-600">
+          <div
+            className={cx(
+              "rounded-2xl border border-dashed px-4 py-4 text-sm font-semibold",
+              alertCard
+                ? "border-amber-300 bg-amber-50 text-amber-900"
+                : "border-tealbrand-200 bg-white/60 text-slate-700"
+            )}
+          >
             No files attached.
           </div>
         )}
       </div>
 
       {submission.meeting ? (
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <div
+          className={cx(
+            "mt-4 rounded-2xl border px-4 py-3",
+            alertCard
+              ? "border-amber-300 bg-amber-50"
+              : "border-amber-200 bg-amber-50"
+          )}
+        >
           <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
             Scheduled Meeting
           </div>
@@ -692,29 +706,33 @@ function SubmissionCard({
 }
 
 // PUBLIC_INTERFACE
-function EditSubmissionModal({
-  open,
-  submission,
-  onClose,
-  onImmediatePatch,
-  onRemoveFile,
-  onAddFiles
-}) {
-  /** This modal is "instant save": any field change immediately patches React state. */
+function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
+  /**
+   * Requirement: Save/Cancel semantics.
+   * - Modal uses a local "draft" so Cancel can revert without changing the card.
+   * - Save commits to React state and the history card updates instantly.
+   */
   const titleId = "editWorkTitle";
   const descId = "editWorkDesc";
   const fileId = "editWorkFiles";
 
   const titleInputRef = useRef(null);
 
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
+  const [draftFiles, setDraftFiles] = useState([]);
+
   useEffect(() => {
-    if (!open) return;
-    // Focus the title field after open for usability.
-    const t = setTimeout(() => {
-      titleInputRef.current?.focus?.();
-    }, 0);
+    if (!open || !submission) return;
+
+    // Initialize draft from current submission every time we open.
+    setDraftTitle(submission.title || "");
+    setDraftDescription(submission.description || "");
+    setDraftFiles(Array.isArray(submission.files) ? submission.files : []);
+
+    const t = setTimeout(() => titleInputRef.current?.focus?.(), 0);
     return () => clearTimeout(t);
-  }, [open]);
+  }, [open, submission]);
 
   if (!open || !submission) return null;
 
@@ -728,15 +746,13 @@ function EditSubmissionModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-tealbrand-200/60 bg-white shadow-xl">
-        <header className="border-b border-tealbrand-100 bg-gradient-to-r from-tealbrand-600 to-tealbrand-700 px-5 py-5 text-white">
+      {/* Requirement: compact modal (not full screen), with top/bottom margin and internal scroll */}
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-tealbrand-200/60 bg-white shadow-xl">
+        <header className="border-b border-tealbrand-100 bg-gradient-to-r from-tealbrand-600 to-tealbrand-700 px-5 py-4 text-white">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-black">Edit Submission</h2>
-              <p className="mt-1 text-sm font-semibold text-white/85">
-                Changes save instantly (UI-only). Close when done.
-              </p>
-              <div className="mt-2 text-xs font-semibold text-white/80">
+              <div className="mt-1 text-xs font-semibold text-white/85">
                 Submitted:{" "}
                 <span className="font-extrabold text-white">
                   {submission.timestampLabel}
@@ -748,65 +764,68 @@ function EditSubmissionModal({
               type="button"
               onClick={onClose}
               className={cx(
-                "inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-extrabold text-tealbrand-800",
+                "inline-flex h-9 items-center justify-center rounded-2xl bg-white px-3 text-xs font-extrabold text-tealbrand-800",
                 "shadow-sm transition hover:bg-white/95 active:bg-white/90",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-700"
               )}
             >
-              Close
-              <span aria-hidden="true">✕</span>
+              ✕
+              <span className="sr-only">Close</span>
             </button>
           </div>
         </header>
 
-        <div className="px-5 py-5">
+        {/* Internal scroll region */}
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-5">
           <div className="space-y-5">
             <div>
-              <label htmlFor={titleId} className="text-sm font-extrabold text-slate-900">
+              <label
+                htmlFor={titleId}
+                className="text-sm font-extrabold text-slate-900"
+              >
                 Work Title
               </label>
               <input
                 ref={titleInputRef}
                 id={titleId}
-                value={submission.title}
-                onChange={(e) => onImmediatePatch({ title: e.target.value })}
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
                 placeholder="e.g., Weekly progress report"
                 className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
               />
-              <div className="mt-1 text-xs font-semibold text-slate-500">
-                Tip: title updates immediately while you type.
-              </div>
             </div>
 
             <div>
-              <label htmlFor={descId} className="text-sm font-extrabold text-slate-900">
+              <label
+                htmlFor={descId}
+                className="text-sm font-extrabold text-slate-900"
+              >
                 Description
               </label>
               <textarea
                 id={descId}
-                value={submission.description}
-                onChange={(e) => onImmediatePatch({ description: e.target.value })}
+                value={draftDescription}
+                onChange={(e) => setDraftDescription(e.target.value)}
                 placeholder="Write a short summary…"
-                rows={5}
-                className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                rows={6}
+                className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
               />
+              <div className="mt-1 text-xs font-semibold text-slate-500">
+                Scroll inside the modal if content is long.
+              </div>
             </div>
 
             <div>
-              <div className="flex items-end justify-between gap-3">
-                <div>
-                  <div className="text-sm font-extrabold text-slate-900">
-                    Attached Files
-                  </div>
-                  <div className="mt-1 text-xs font-semibold text-slate-500">
-                    Remove existing files or add new ones. All changes save instantly.
-                  </div>
-                </div>
+              <div className="text-sm font-extrabold text-slate-900">
+                Attached Files
+              </div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">
+                Remove existing files or add new ones. Changes apply when you click “Save Changes”.
               </div>
 
-              {submission.files && submission.files.length ? (
+              {draftFiles && draftFiles.length ? (
                 <ul className="mt-3 space-y-2">
-                  {submission.files.map((f) => (
+                  {draftFiles.map((f) => (
                     <li
                       key={f.id}
                       className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
@@ -837,10 +856,12 @@ function EditSubmissionModal({
 
                         <button
                           type="button"
-                          onClick={() => onRemoveFile(f.id)}
+                          onClick={() =>
+                            setDraftFiles((prev) => prev.filter((x) => x.id !== f.id))
+                          }
                           className={cx(
-                            "inline-flex items-center justify-center rounded-xl border border-tealbrand-200 bg-white px-3 py-2",
-                            "text-xs font-extrabold text-tealbrand-800 shadow-sm transition hover:bg-tealbrand-50 active:bg-tealbrand-100",
+                            "inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2",
+                            "text-xs font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
                           )}
                           aria-label={`Remove ${f.name}`}
@@ -859,7 +880,10 @@ function EditSubmissionModal({
               )}
 
               <div className="mt-4">
-                <label htmlFor={fileId} className="text-sm font-extrabold text-slate-900">
+                <label
+                  htmlFor={fileId}
+                  className="text-sm font-extrabold text-slate-900"
+                >
                   Add Files
                 </label>
                 <input
@@ -867,7 +891,12 @@ function EditSubmissionModal({
                   type="file"
                   multiple
                   onChange={(e) => {
-                    onAddFiles(e.target.files);
+                    const toAdd = Array.from(e.target.files || []).map((file) => ({
+                      id: cryptoLikeId(),
+                      name: file.name || "file",
+                      size: typeof file.size === "number" ? file.size : 0
+                    }));
+                    if (toAdd.length) setDraftFiles((prev) => [...prev, ...toAdd]);
                     // Reset so selecting the same file again re-triggers onChange
                     e.target.value = "";
                   }}
@@ -875,25 +904,38 @@ function EditSubmissionModal({
                 />
               </div>
             </div>
+          </div>
+        </div>
 
-            <div className="rounded-2xl border border-tealbrand-100 bg-tealbrand-50 px-4 py-3">
-              <div className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-900">
-                Instant Save
-              </div>
-              <div className="mt-1 text-sm font-semibold text-tealbrand-800">
-                Title/description updates as you type, and file add/remove updates immediately.
-              </div>
-            </div>
+        {/* Footer buttons (Save/Cancel) */}
+        <div className="border-t border-slate-200 bg-white px-5 py-4">
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                // Requirement: Cancel closes without changes.
+                onClose();
+              }}
+              className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+            >
+              Cancel
+            </button>
 
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
-              >
-                Done
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                // Requirement: Save commits changes instantly to the card (React state update).
+                onImmediatePatch({
+                  title: draftTitle,
+                  description: draftDescription,
+                  files: draftFiles
+                });
+                onClose();
+              }}
+              className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+            >
+              Save Changes
+            </button>
           </div>
         </div>
       </div>
