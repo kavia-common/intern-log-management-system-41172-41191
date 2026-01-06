@@ -1,0 +1,4 @@
+{
+    "command": "npm run test",
+    "working_directory": "/home/kavia/workspace/code-generation/intern-log-management-system-41172-41191/intern_logs_frontend"
+}
