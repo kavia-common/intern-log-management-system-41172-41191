@@ -112,7 +112,7 @@ function LoginScreen({ onSelectRole }) {
           </div>
 
           <div className="mt-10 text-center text-xs font-semibold text-white/75">
-            UI-only login (no credentials) — choose a role to continue.
+            Choose a role to continue
           </div>
         </div>
       </div>
