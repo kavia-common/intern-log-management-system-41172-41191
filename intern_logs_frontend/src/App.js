@@ -4,26 +4,17 @@ import "./App.css";
 /**
  * T3Log UI (frontend-only) — Spec implementation
  *
- * Requirements implemented:
- * 1) Beautiful login page: teal gradient background, title + tagline, two glowing role cards.
- * 2) Modern header after login: white/glass bar, teal logo text, single logout button with icon, no sidebar.
- * 3) Intern dashboard: submit work form + instant history list, auto timestamp, per-file download icons,
- *    edit + delete per card (interactive state).
- * 4) Mentor dashboard: grid of intern submissions, per-card actions:
- *    - Reviewed Successfully -> green badge
- *    - Want to Connect -> orange badge
- *    - Schedule Meeting -> opens date/time popup (modal)
- *    Includes per-file download icon. No global schedule button.
- * 5) Visual feedback: when meeting scheduled, that specific card gets light amber alert background.
- *
- * Additional in this step:
- * - Intern Edit Modal: teal-themed modal opens on Edit icon click, pre-fills title/description,
- *   lists/removes existing files, supports adding files, and saves changes immediately via React state.
- * - Background blur/dim while modal is open.
+ * Updates in this task:
+ * - Remove "Want to Connect" action and any related UI/status.
+ * - Ensure mentor status updates reflect in intern view instantly (shared submissions state).
+ * - Apply dynamic color rules consistently across intern & mentor cards:
+ *    default: pale teal bg + dark teal border
+ *    reviewed: light green bg + dark green border
+ *    scheduled meeting: light orange bg + dark orange border
+ * - Keep modals compact and dark-teal themed (already in place; minor alignment with new rules).
  *
  * Notes:
  * - All actions are UI-only and stored in React state (no backend).
- * - "Download" uses a generated blob so the icon demonstrates behavior instantly.
  */
 
 // Small utility for className concatenation
@@ -37,10 +28,11 @@ function App() {
   const [isAuthed, setIsAuthed] = useState(false);
   const [role, setRole] = useState(null); // "intern" | "mentor" | null
 
-  /** Shared in-memory submissions store */
+  /**
+   * Shared in-memory submissions store
+   * This is the single source of truth so mentor changes instantly reflect for interns.
+   */
   const [submissions, setSubmissions] = useState([]);
-
-  /** Seedless behavior: starts empty, per requirement */
 
   // PUBLIC_INTERFACE
   function handleLogout() {
@@ -106,14 +98,14 @@ function LoginScreen({ onSelectRole }) {
           <div className="mt-10 grid gap-5 md:grid-cols-2">
             <RoleCard
               title="I am an Intern"
-              subtitle="Log work with timestamps, manage submissions, and track review status."
+              subtitle="Log work with timestamps, manage submissions, and track review/meeting status."
               icon={<InternIcon />}
               buttonLabel="Access Dashboard"
               onClick={() => onSelectRole("intern")}
             />
             <RoleCard
               title="I am a Mentor"
-              subtitle="Review intern submissions, set statuses, and schedule meetings."
+              subtitle="Review intern submissions, set reviewed status, and schedule meetings."
               icon={<MentorIcon />}
               buttonLabel="Review Submissions"
               onClick={() => onSelectRole("mentor")}
@@ -263,8 +255,8 @@ function InternDashboard({ submissions, setSubmissions }) {
         timestampIso,
         timestampLabel,
         files,
-        // mentor-controlled fields
-        status: "none", // "none" | "success" | "connect"
+        // mentor-controlled fields (shared state)
+        status: "none", // "none" | "reviewed"
         meeting: null // { date, time, description } | null
       },
       ...prev
@@ -299,37 +291,6 @@ function InternDashboard({ submissions, setSubmissions }) {
     /** Public interface: apply an immediate patch to a submission in state. */
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
-    );
-  }
-
-  // PUBLIC_INTERFACE
-  function removeExistingFile(submissionId, fileId) {
-    /** Public interface: remove an existing file from a submission immediately. */
-    setSubmissions((prev) =>
-      prev.map((s) => {
-        if (s.id !== submissionId) return s;
-        const nextFiles = (s.files || []).filter((f) => f.id !== fileId);
-        return { ...s, files: nextFiles };
-      })
-    );
-  }
-
-  // PUBLIC_INTERFACE
-  function addFilesToSubmission(submissionId, fileInputList) {
-    /** Public interface: add newly selected files to an existing submission immediately. */
-    const toAdd = Array.from(fileInputList || []).map((f) => ({
-      id: cryptoLikeId(),
-      name: f.name || "file",
-      size: typeof f.size === "number" ? f.size : 0
-    }));
-
-    if (!toAdd.length) return;
-
-    setSubmissions((prev) =>
-      prev.map((s) => {
-        if (s.id !== submissionId) return s;
-        return { ...s, files: [...(s.files || []), ...toAdd] };
-      })
     );
   }
 
@@ -484,24 +445,16 @@ function MentorDashboard({ submissions, setSubmissions }) {
   }, [meetingTargetId, submissions]);
 
   // PUBLIC_INTERFACE
-  function markSuccess(id) {
-    /** Public interface: marks a submission as Reviewed Successfully (green badge). */
+  function markReviewed(id) {
+    /** Public interface: marks a submission as Reviewed Successfully. */
     setSubmissions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, status: "success" } : s))
-    );
-  }
-
-  // PUBLIC_INTERFACE
-  function markConnect(id) {
-    /** Public interface: marks a submission as Want to Connect (orange badge). */
-    setSubmissions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, status: "connect" } : s))
+      prev.map((s) => (s.id === id ? { ...s, status: "reviewed" } : s))
     );
   }
 
   // PUBLIC_INTERFACE
   function scheduleMeeting(id, meeting) {
-    /** Public interface: sets meeting for a submission; triggers alert background in that card. */
+    /** Public interface: sets meeting for a submission; triggers scheduled meeting color in that card. */
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, meeting } : s))
     );
@@ -514,7 +467,7 @@ function MentorDashboard({ submissions, setSubmissions }) {
           Mentor Dashboard
         </h1>
         <p className="mt-1 text-sm font-semibold text-slate-600">
-          Review intern submissions as cards. Actions live inside each work card (no global schedule button).
+          Review intern submissions as cards. Actions live inside each work card.
         </p>
       </div>
 
@@ -530,8 +483,7 @@ function MentorDashboard({ submissions, setSubmissions }) {
               key={s.id}
               submission={s}
               variant="mentor"
-              onReviewedSuccessfully={() => markSuccess(s.id)}
-              onWantToConnect={() => markConnect(s.id)}
+              onReviewedSuccessfully={() => markReviewed(s.id)}
               onScheduleMeeting={() => setMeetingTargetId(s.id)}
             />
           ))}
@@ -552,35 +504,47 @@ function MentorDashboard({ submissions, setSubmissions }) {
   );
 }
 
+/**
+ * Card tone rules:
+ * - meeting scheduled: light orange bg + dark orange border (highest priority)
+ * - reviewed: light green bg + dark green border
+ * - default: pale teal bg + dark teal border
+ */
+function getCardToneClasses(submission) {
+  const hasMeeting = Boolean(submission.meeting);
+  const isReviewed = submission.status === "reviewed";
+
+  if (hasMeeting) return "border-amber-700 bg-amber-200/70";
+  if (isReviewed) return "border-emerald-700 bg-emerald-100";
+  return "border-tealbrand-800 bg-tealbrand-50";
+}
+
 function SubmissionCard({
   submission,
   variant,
   onEdit,
   onDelete,
   onReviewedSuccessfully,
-  onWantToConnect,
   onScheduleMeeting
 }) {
-  const statusBadge =
-    submission.status === "success" ? (
-      <StatusBadge kind="success" label="Reviewed Successfully" />
-    ) : submission.status === "connect" ? (
-      <StatusBadge kind="connect" label="Want to Connect" />
-    ) : null;
-
+  const isReviewed = submission.status === "reviewed";
   const hasMeeting = Boolean(submission.meeting);
-  // Requirement: when a meeting is scheduled, the entire card becomes soft amber (visual priority).
-  // This is driven entirely by React state (`submission.meeting`) so it updates instantly.
-  const alertCard = hasMeeting && variant === "mentor";
 
-  // Requirement: all work cards (intern history + mentor cards) use dark teal border + pale teal background.
-  const baseCardTone = "border-tealbrand-800 bg-tealbrand-50";
+  const statusBadge = isReviewed ? (
+    <StatusBadge kind="success" label="Reviewed Successfully" />
+  ) : null;
+
+  const cardTone = getCardToneClasses(submission);
+
+  // Keep file rows aligned with card tone (subtle)
+  const fileRowBorder =
+    hasMeeting ? "border-amber-200" : isReviewed ? "border-emerald-200" : "border-tealbrand-200";
 
   return (
     <article
       className={cx(
         "rounded-3xl border-2 shadow-sm transition",
-        alertCard ? "border-amber-400 bg-amber-200/70" : baseCardTone,
+        cardTone,
         "p-5"
       )}
     >
@@ -616,7 +580,7 @@ function SubmissionCard({
                 key={f.id}
                 className={cx(
                   "flex items-center justify-between gap-3 rounded-2xl border bg-white/70 px-3 py-2",
-                  alertCard ? "border-amber-200" : "border-tealbrand-200"
+                  fileRowBorder
                 )}
               >
                 <div className="min-w-0">
@@ -633,7 +597,7 @@ function SubmissionCard({
                   onClick={() => downloadPlaceholderFile(f.name)}
                   className={cx(
                     "inline-flex items-center justify-center rounded-xl border bg-white px-3 py-2",
-                    alertCard ? "border-amber-200" : "border-tealbrand-200",
+                    fileRowBorder,
                     "text-xs font-extrabold text-slate-700 shadow-sm transition hover:bg-white active:bg-slate-50",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
                   )}
@@ -649,9 +613,11 @@ function SubmissionCard({
           <div
             className={cx(
               "rounded-2xl border border-dashed px-4 py-4 text-sm font-semibold",
-              alertCard
+              hasMeeting
                 ? "border-amber-300 bg-amber-50 text-amber-900"
-                : "border-tealbrand-200 bg-white/60 text-slate-700"
+                : isReviewed
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-tealbrand-200 bg-white/60 text-slate-700"
             )}
           >
             No files attached.
@@ -660,14 +626,7 @@ function SubmissionCard({
       </div>
 
       {submission.meeting ? (
-        <div
-          className={cx(
-            "mt-4 rounded-2xl border px-4 py-3",
-            alertCard
-              ? "border-amber-300 bg-amber-50"
-              : "border-amber-200 bg-amber-50"
-          )}
-        >
+        <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
           <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
             Scheduled Meeting
           </div>
@@ -690,12 +649,9 @@ function SubmissionCard({
           </IconButton>
         </div>
       ) : (
-        <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <ActionButton kind="success" onClick={onReviewedSuccessfully}>
             Reviewed Successfully
-          </ActionButton>
-          <ActionButton kind="connect" onClick={onWantToConnect}>
-            Want to Connect
           </ActionButton>
           <ActionButton kind="schedule" onClick={onScheduleMeeting}>
             Schedule Meeting
@@ -709,9 +665,10 @@ function SubmissionCard({
 // PUBLIC_INTERFACE
 function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
   /**
-   * Requirement: Save/Cancel semantics.
-   * - Modal uses a local "draft" so Cancel can revert without changing the card.
-   * - Save commits to React state and the history card updates instantly.
+   * Requirement:
+   * - Compact modal, dark-teal themed
+   * - Cancel closes without changes
+   * - Save commits to shared state (instant card update)
    */
   const titleId = "editWorkTitle";
   const descId = "editWorkDesc";
@@ -726,7 +683,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
   useEffect(() => {
     if (!open || !submission) return;
 
-    // Initialize draft from current submission every time we open.
     setDraftTitle(submission.title || "");
     setDraftDescription(submission.description || "");
     setDraftFiles(Array.isArray(submission.files) ? submission.files : []);
@@ -747,7 +703,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Requirement: compact modal (not full screen), with top/bottom margin, internal scroll, dark-teal style */}
       <div className="w-full max-w-lg overflow-hidden rounded-3xl border-2 border-tealbrand-900 bg-tealbrand-900 shadow-xl">
         <header className="border-b border-tealbrand-800/70 px-5 py-4 text-white">
           <div className="flex items-start justify-between gap-4">
@@ -776,7 +731,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
           </div>
         </header>
 
-        {/* Internal scroll region */}
         <div className="max-h-[70vh] overflow-y-auto px-5 py-5">
           <div className="space-y-5">
             <div>
@@ -893,7 +847,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                       size: typeof file.size === "number" ? file.size : 0
                     }));
                     if (toAdd.length) setDraftFiles((prev) => [...prev, ...toAdd]);
-                    // Reset so selecting the same file again re-triggers onChange
                     e.target.value = "";
                   }}
                   className="mt-2 block w-full cursor-pointer rounded-2xl border border-white/20 bg-white text-sm font-semibold text-slate-700 file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-tealbrand-800 file:px-4 file:py-2.5 file:text-sm file:font-extrabold file:text-white hover:file:bg-tealbrand-700"
@@ -903,15 +856,11 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
           </div>
         </div>
 
-        {/* Footer buttons (Save/Cancel) */}
         <div className="border-t border-tealbrand-800/70 bg-tealbrand-900 px-5 py-4">
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
-              onClick={() => {
-                // Requirement: Cancel closes without changes.
-                onClose();
-              }}
+              onClick={onClose}
               className="inline-flex h-10 items-center justify-center rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-extrabold text-white shadow-sm transition hover:bg-white/15 active:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
             >
               Cancel
@@ -920,7 +869,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
             <button
               type="button"
               onClick={() => {
-                // Requirement: Save commits changes instantly to the card (React state update).
                 onImmediatePatch({
                   title: draftTitle,
                   description: draftDescription,
@@ -946,9 +894,7 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
 
   const lastOpenRef = useRef(false);
   if (open && !lastOpenRef.current) {
-    // Reset fields on open to make behavior predictable.
     lastOpenRef.current = true;
-    // Avoid setState-in-render; reset via microtask.
     queueMicrotask(() => {
       setDate("");
       setTime("");
@@ -969,14 +915,13 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Requirement: compact, dark teal modal, white text, white inputs, inline date/time */}
       <div className="w-full max-w-lg overflow-hidden rounded-3xl border-2 border-tealbrand-900 bg-tealbrand-900 shadow-xl">
         <header className="border-b border-tealbrand-800/70 px-5 py-4 text-white">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-black tracking-tight">Schedule Meeting</h2>
               <p className="mt-1 text-xs font-semibold text-white/80">
-                Pick a date/time and add a short note. Scheduling will instantly highlight the mentor card.
+                Pick a date/time and add a short note. Scheduling will instantly switch the card to the scheduled-meeting color.
               </p>
               {submission ? (
                 <div className="mt-2 text-xs font-semibold text-white/80">
@@ -1073,10 +1018,10 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
 
           <div className="mt-5 rounded-2xl border border-amber-300/60 bg-amber-200/20 px-4 py-3">
             <div className="text-xs font-extrabold uppercase tracking-wide text-amber-50">
-              Meeting Alert
+              Scheduled Color Rule
             </div>
             <div className="mt-1 text-sm font-semibold text-amber-50/90">
-              After scheduling, the matching mentor card switches to a soft amber background immediately.
+              After scheduling, the matching card (intern + mentor) uses light orange with a dark orange border immediately.
             </div>
           </div>
         </div>
@@ -1099,7 +1044,6 @@ function EmptyState({ title, description }) {
 function StatusBadge({ kind, label }) {
   const styles = {
     success: "bg-emerald-50 text-emerald-800 ring-emerald-200 border-emerald-200",
-    connect: "bg-orange-50 text-orange-800 ring-orange-200 border-orange-200",
     alert: "bg-amber-50 text-amber-900 ring-amber-200 border-amber-200"
   };
 
@@ -1119,8 +1063,6 @@ function ActionButton({ kind, children, onClick }) {
   const variants = {
     success:
       "bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 focus-visible:ring-emerald-300",
-    connect:
-      "bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 focus-visible:ring-orange-300",
     schedule:
       "bg-tealbrand-600 text-white hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:ring-tealbrand-300"
   };
