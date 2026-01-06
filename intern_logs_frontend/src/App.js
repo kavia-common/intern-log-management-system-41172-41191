@@ -919,9 +919,6 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-black tracking-tight">Schedule Meeting</h2>
-              <p className="mt-1 text-xs font-semibold text-white/80">
-                Pick a date/time and add a short note. Scheduling will instantly switch the card to the scheduled-meeting color.
-              </p>
               {submission ? (
                 <div className="mt-2 text-xs font-semibold text-white/80">
                   For: <span className="font-extrabold text-white">{submission.title}</span>
