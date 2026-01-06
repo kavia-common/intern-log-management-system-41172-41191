@@ -1,17 +1,28 @@
-# Blocked: user_input_ref attachment not available
+# Blocked: user_input_ref attachment not accessible in this environment
 
-This change request requires applying the updated UI/UX spec from the orchestrator-provided attachment:
+This change request **requires** applying the updated UI/UX spec from the orchestrator-provided `user_input_ref` attachment.
 
-- Expected path: `/home/kavia/codegen-session/temp-attachments/orchestrator_user_input_20260106_094054_210047.txt`
-- Result: File not found in this execution environment.
+## Expected attachment path (from task)
+`/home/kavia/codegen-session/temp-attachments/orchestrator_user_input_20260106_094054_210047.txt`
 
-## Why no code changes were made yet
-The instruction explicitly says the attachment is the *single source of truth*. Without it, any UI/interaction edits to `src/App.js` would be speculative and risk diverging from required details (login layout, exact teal styling rules, exact dashboard interactions, per-item actions, meeting scheduling feedback behaviors, etc.).
+## Result in this environment
+The file is **not found** at the expected path during execution.
 
-## What is needed to proceed
-Re-provide the `user_input_ref` attachment in an accessible path (or ensure it is mounted into the container filesystem), then re-run this task so the frontend can be updated accordingly.
+## Why code changes were not made
+The instruction explicitly says the attachment is the **single source of truth** for:
+- The updated login page (teal gradient + role cards)
+- Glass-effect header after login
+- Intern dashboard: instant React state updates (submit/edit/delete), auto timestamp, per-file download icons, visual feedback
+- Mentor dashboard: per-card actions (Reviewed Successfully / Want to Connect / Schedule Meeting popup), per-file downloads, meeting scheduled alert background
+- Removing general schedule buttons; keep actions inside specific work cards
+- Teal-themed professional styling specifics
 
-## Files that will be updated once the spec is available (planned)
-- `src/App.js` (login page + stateful intern/mentor flows)
-- Potentially `src/index.css` / `tailwind.config.js` (if the spec requires new tokens, gradients, glass effects)
-- Potentially new components under `src/` if refactoring is needed while preserving no-sidebar constraint
+Without the attachment content, implementing UI/UX would be speculative and likely incorrect.
+
+## What is needed to proceed (no extra clarifications required)
+Ensure the `user_input_ref` attachment is mounted into the container filesystem at the above path (or provide an accessible path in this workspace), then re-run this task.
+
+## Planned files to update once the spec is available
+- `intern_logs_frontend/src/App.js` (login + glass header + stateful intern/mentor flows)
+- `intern_logs_frontend/src/index.css` and/or `intern_logs_frontend/tailwind.config.js` (only if new tokens/gradients/glass rules are specified)
+- Potentially `intern_logs_frontend/src/components/*` (if splitting App.js improves maintainability while preserving no-sidebar layout)
