@@ -63,8 +63,7 @@ function App() {
 
           <footer className="mt-10 border-t border-slate-200/70 bg-white/60 backdrop-blur">
             <div className="mx-auto w-full max-w-6xl px-4 py-6 text-xs font-semibold text-slate-500 sm:px-6">
-              <span className="text-tealbrand-700">T3Log</span> • UI-only prototype •
-              Instant state updates (no backend)
+              <span className="text-tealbrand-700">T3Log</span>
             </div>
           </footer>
         </>
