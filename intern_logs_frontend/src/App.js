@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 /**
@@ -15,6 +15,11 @@ import "./App.css";
  *    - Schedule Meeting -> opens date/time popup (modal)
  *    Includes per-file download icon. No global schedule button.
  * 5) Visual feedback: when meeting scheduled, that specific card gets light amber alert background.
+ *
+ * Additional in this step:
+ * - Intern Edit Modal: teal-themed modal opens on Edit icon click, pre-fills title/description,
+ *   lists/removes existing files, supports adding files, and saves changes immediately via React state.
+ * - Background blur/dim while modal is open.
  *
  * Notes:
  * - All actions are UI-only and stored in React state (no backend).
@@ -212,11 +217,21 @@ function InternDashboard({ submissions, setSubmissions }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [fileList, setFileList] = useState([]);
-  const [editId, setEditId] = useState(null);
+
+  /** Edit Modal state */
+  const [editingSubmissionId, setEditingSubmissionId] = useState(null);
+
+  const editingSubmission = useMemo(() => {
+    if (!editingSubmissionId) return null;
+    return submissions.find((s) => s.id === editingSubmissionId) || null;
+  }, [editingSubmissionId, submissions]);
+
+  const hasAny = submissions.length > 0;
+  const isEditModalOpen = Boolean(editingSubmission);
 
   // PUBLIC_INTERFACE
   function handleSubmit(e) {
-    /** Public interface: add or update a submission and instantly reflect in history. */
+    /** Public interface: add a submission and instantly reflect in history. */
     e.preventDefault();
 
     const trimmedTitle = title.trim();
@@ -240,49 +255,23 @@ function InternDashboard({ submissions, setSubmissions }) {
       size: typeof f.size === "number" ? f.size : 0
     }));
 
-    if (editId) {
-      setSubmissions((prev) =>
-        prev.map((s) =>
-          s.id === editId
-            ? {
-                ...s,
-                title: trimmedTitle,
-                description: trimmedDesc,
-                // Keep original timestamp for edit; spec doesn't require updating timestamp on edit.
-                files: files.length ? files : s.files
-              }
-            : s
-        )
-      );
-    } else {
-      setSubmissions((prev) => [
-        {
-          id: cryptoLikeId(),
-          title: trimmedTitle,
-          description: trimmedDesc,
-          timestampIso,
-          timestampLabel,
-          files,
-          // mentor-controlled fields
-          status: "none", // "none" | "success" | "connect"
-          meeting: null // { date, time, description } | null
-        },
-        ...prev
-      ]);
-    }
+    setSubmissions((prev) => [
+      {
+        id: cryptoLikeId(),
+        title: trimmedTitle,
+        description: trimmedDesc,
+        timestampIso,
+        timestampLabel,
+        files,
+        // mentor-controlled fields
+        status: "none", // "none" | "success" | "connect"
+        meeting: null // { date, time, description } | null
+      },
+      ...prev
+    ]);
 
     setTitle("");
     setDescription("");
-    setFileList([]);
-    setEditId(null);
-  }
-
-  // PUBLIC_INTERFACE
-  function startEdit(submission) {
-    /** Public interface: load submission into form for editing. */
-    setEditId(submission.id);
-    setTitle(submission.title);
-    setDescription(submission.description);
     setFileList([]);
   }
 
@@ -290,155 +279,207 @@ function InternDashboard({ submissions, setSubmissions }) {
   function deleteSubmission(id) {
     /** Public interface: delete submission from history. */
     setSubmissions((prev) => prev.filter((s) => s.id !== id));
-    if (editId === id) {
-      setEditId(null);
-      setTitle("");
-      setDescription("");
-      setFileList([]);
-    }
+    if (editingSubmissionId === id) setEditingSubmissionId(null);
   }
 
-  const hasAny = submissions.length > 0;
+  // PUBLIC_INTERFACE
+  function openEditModal(submission) {
+    /** Public interface: open modal and edit a submission in-place (UI-only). */
+    setEditingSubmissionId(submission.id);
+  }
+
+  // PUBLIC_INTERFACE
+  function closeEditModal() {
+    /** Public interface: close the edit modal. */
+    setEditingSubmissionId(null);
+  }
+
+  // PUBLIC_INTERFACE
+  function updateSubmissionImmediate(id, patch) {
+    /** Public interface: apply an immediate patch to a submission in state. */
+    setSubmissions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+    );
+  }
+
+  // PUBLIC_INTERFACE
+  function removeExistingFile(submissionId, fileId) {
+    /** Public interface: remove an existing file from a submission immediately. */
+    setSubmissions((prev) =>
+      prev.map((s) => {
+        if (s.id !== submissionId) return s;
+        const nextFiles = (s.files || []).filter((f) => f.id !== fileId);
+        return { ...s, files: nextFiles };
+      })
+    );
+  }
+
+  // PUBLIC_INTERFACE
+  function addFilesToSubmission(submissionId, fileInputList) {
+    /** Public interface: add newly selected files to an existing submission immediately. */
+    const toAdd = Array.from(fileInputList || []).map((f) => ({
+      id: cryptoLikeId(),
+      name: f.name || "file",
+      size: typeof f.size === "number" ? f.size : 0
+    }));
+
+    if (!toAdd.length) return;
+
+    setSubmissions((prev) =>
+      prev.map((s) => {
+        if (s.id !== submissionId) return s;
+        return { ...s, files: [...(s.files || []), ...toAdd] };
+      })
+    );
+  }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-      <div className="grid gap-6 lg:grid-cols-5">
-        <div className="lg:col-span-2">
-          <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <header className="border-b border-slate-200 px-5 py-5">
-              <h2 className="text-base font-black text-slate-900">
-                {editId ? "Edit Work" : "Submit Work"}
-              </h2>
-              <p className="mt-1 text-sm font-semibold text-slate-600">
-                Fields: Work Title, Description, File Upload. Timestamp is captured on submission.
-              </p>
-            </header>
-
-            <div className="px-5 py-5">
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div>
-                  <label htmlFor="workTitle" className="text-sm font-extrabold text-slate-900">
-                    Work Title
-                  </label>
-                  <input
-                    id="workTitle"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="e.g., Weekly progress report"
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="workDesc" className="text-sm font-extrabold text-slate-900">
-                    Description
-                  </label>
-                  <textarea
-                    id="workDesc"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Write a short summary of what you completed, blockers, and next steps…"
-                    rows={5}
-                    className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="workFile" className="text-sm font-extrabold text-slate-900">
-                    File Upload
-                  </label>
-                  <input
-                    id="workFile"
-                    type="file"
-                    multiple
-                    onChange={(e) => setFileList(e.target.files)}
-                    className="mt-2 block w-full cursor-pointer rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-tealbrand-600 file:px-4 file:py-2.5 file:text-sm file:font-extrabold file:text-white hover:file:bg-tealbrand-700"
-                  />
-                  <p className="mt-2 text-xs font-semibold text-slate-500">
-                    UI-only upload. File names are stored in state so download icons can be shown.
+    <>
+      {/* Wrapper that can blur when the edit modal is open */}
+      <div className={cx(isEditModalOpen && "blur-sm")}>
+        <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+          <div className="grid gap-6 lg:grid-cols-5">
+            <div className="lg:col-span-2">
+              <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <header className="border-b border-slate-200 px-5 py-5">
+                  <h2 className="text-base font-black text-slate-900">
+                    Submit Work
+                  </h2>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">
+                    Fields: Work Title, Description, File Upload. Timestamp is captured on submission.
                   </p>
-                </div>
+                </header>
 
-                <div className="rounded-2xl border border-tealbrand-100 bg-tealbrand-50 px-4 py-3">
-                  <div className="text-sm font-black text-tealbrand-900">Auto-timestamp</div>
-                  <div className="mt-1 text-sm font-semibold text-tealbrand-800">
-                    Date and time will be captured automatically when you submit.
-                  </div>
-                </div>
+                <div className="px-5 py-5">
+                  <form className="space-y-4" onSubmit={handleSubmit}>
+                    <div>
+                      <label htmlFor="workTitle" className="text-sm font-extrabold text-slate-900">
+                        Work Title
+                      </label>
+                      <input
+                        id="workTitle"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="e.g., Weekly progress report"
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                      />
+                    </div>
 
-                <div className="flex items-center justify-end gap-2">
-                  {editId ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditId(null);
-                        setTitle("");
-                        setDescription("");
-                        setFileList([]);
-                      }}
-                      className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
-                    >
-                      Cancel
-                    </button>
-                  ) : (
-                    <button
-                      type="reset"
-                      onClick={() => {
-                        setTitle("");
-                        setDescription("");
-                        setFileList([]);
-                      }}
-                      className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
-                    >
-                      Clear
-                    </button>
-                  )}
+                    <div>
+                      <label htmlFor="workDesc" className="text-sm font-extrabold text-slate-900">
+                        Description
+                      </label>
+                      <textarea
+                        id="workDesc"
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Write a short summary of what you completed, blockers, and next steps…"
+                        rows={5}
+                        className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                      />
+                    </div>
 
-                  <button
-                    type="submit"
-                    className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
-                  >
-                    {editId ? "Save Changes" : "Submit"}
-                  </button>
+                    <div>
+                      <label htmlFor="workFile" className="text-sm font-extrabold text-slate-900">
+                        File Upload
+                      </label>
+                      <input
+                        id="workFile"
+                        type="file"
+                        multiple
+                        onChange={(e) => setFileList(e.target.files)}
+                        className="mt-2 block w-full cursor-pointer rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-tealbrand-600 file:px-4 file:py-2.5 file:text-sm file:font-extrabold file:text-white hover:file:bg-tealbrand-700"
+                      />
+                      <p className="mt-2 text-xs font-semibold text-slate-500">
+                        UI-only upload. File names are stored in state so download icons can be shown.
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-tealbrand-100 bg-tealbrand-50 px-4 py-3">
+                      <div className="text-sm font-black text-tealbrand-900">Auto-timestamp</div>
+                      <div className="mt-1 text-sm font-semibold text-tealbrand-800">
+                        Date and time will be captured automatically when you submit.
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="reset"
+                        onClick={() => {
+                          setTitle("");
+                          setDescription("");
+                          setFileList([]);
+                        }}
+                        className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+                      >
+                        Clear
+                      </button>
+
+                      <button
+                        type="submit"
+                        className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                      >
+                        Submit
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </form>
+              </section>
             </div>
-          </section>
-        </div>
 
-        <div className="lg:col-span-3">
-          <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <header className="border-b border-slate-200 px-5 py-5">
-              <h2 className="text-base font-black text-slate-900">History</h2>
-              <p className="mt-1 text-sm font-semibold text-slate-600">
-                Submissions appear instantly below with timestamps, file downloads, and edit/delete controls.
-              </p>
-            </header>
+            <div className="lg:col-span-3">
+              <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <header className="border-b border-slate-200 px-5 py-5">
+                  <h2 className="text-base font-black text-slate-900">History</h2>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">
+                    Submissions appear instantly below with timestamps, file downloads, and edit/delete controls.
+                  </p>
+                </header>
 
-            <div className="px-5 py-5">
-              {!hasAny ? (
-                <EmptyState
-                  title="No submissions yet"
-                  description="Submit your first work item to see it appear here instantly."
-                />
-              ) : (
-                <div className="space-y-4">
-                  {submissions.map((s) => (
-                    <SubmissionCard
-                      key={s.id}
-                      submission={s}
-                      variant="intern"
-                      onEdit={() => startEdit(s)}
-                      onDelete={() => deleteSubmission(s.id)}
+                <div className="px-5 py-5">
+                  {!hasAny ? (
+                    <EmptyState
+                      title="No submissions yet"
+                      description="Submit your first work item to see it appear here instantly."
                     />
-                  ))}
+                  ) : (
+                    <div className="space-y-4">
+                      {submissions.map((s) => (
+                        <SubmissionCard
+                          key={s.id}
+                          submission={s}
+                          variant="intern"
+                          onEdit={() => openEditModal(s)}
+                          onDelete={() => deleteSubmission(s.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+              </section>
             </div>
-          </section>
-        </div>
+          </div>
+        </main>
       </div>
-    </main>
+
+      <EditSubmissionModal
+        open={isEditModalOpen}
+        submission={editingSubmission}
+        onClose={closeEditModal}
+        onImmediatePatch={(patch) => {
+          if (!editingSubmission) return;
+          updateSubmissionImmediate(editingSubmission.id, patch);
+        }}
+        onRemoveFile={(fileId) => {
+          if (!editingSubmission) return;
+          removeExistingFile(editingSubmission.id, fileId);
+        }}
+        onAddFiles={(files) => {
+          if (!editingSubmission) return;
+          addFilesToSubmission(editingSubmission.id, files);
+        }}
+      />
+    </>
   );
 }
 
@@ -650,6 +691,216 @@ function SubmissionCard({
   );
 }
 
+// PUBLIC_INTERFACE
+function EditSubmissionModal({
+  open,
+  submission,
+  onClose,
+  onImmediatePatch,
+  onRemoveFile,
+  onAddFiles
+}) {
+  /** This modal is "instant save": any field change immediately patches React state. */
+  const titleId = "editWorkTitle";
+  const descId = "editWorkDesc";
+  const fileId = "editWorkFiles";
+
+  const titleInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // Focus the title field after open for usability.
+    const t = setTimeout(() => {
+      titleInputRef.current?.focus?.();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  if (!open || !submission) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Edit Submission"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-tealbrand-200/60 bg-white shadow-xl">
+        <header className="border-b border-tealbrand-100 bg-gradient-to-r from-tealbrand-600 to-tealbrand-700 px-5 py-5 text-white">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-black">Edit Submission</h2>
+              <p className="mt-1 text-sm font-semibold text-white/85">
+                Changes save instantly (UI-only). Close when done.
+              </p>
+              <div className="mt-2 text-xs font-semibold text-white/80">
+                Submitted:{" "}
+                <span className="font-extrabold text-white">
+                  {submission.timestampLabel}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className={cx(
+                "inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-extrabold text-tealbrand-800",
+                "shadow-sm transition hover:bg-white/95 active:bg-white/90",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-700"
+              )}
+            >
+              Close
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        </header>
+
+        <div className="px-5 py-5">
+          <div className="space-y-5">
+            <div>
+              <label htmlFor={titleId} className="text-sm font-extrabold text-slate-900">
+                Work Title
+              </label>
+              <input
+                ref={titleInputRef}
+                id={titleId}
+                value={submission.title}
+                onChange={(e) => onImmediatePatch({ title: e.target.value })}
+                placeholder="e.g., Weekly progress report"
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+              />
+              <div className="mt-1 text-xs font-semibold text-slate-500">
+                Tip: title updates immediately while you type.
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor={descId} className="text-sm font-extrabold text-slate-900">
+                Description
+              </label>
+              <textarea
+                id={descId}
+                value={submission.description}
+                onChange={(e) => onImmediatePatch({ description: e.target.value })}
+                placeholder="Write a short summary…"
+                rows={5}
+                className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-sm font-extrabold text-slate-900">
+                    Attached Files
+                  </div>
+                  <div className="mt-1 text-xs font-semibold text-slate-500">
+                    Remove existing files or add new ones. All changes save instantly.
+                  </div>
+                </div>
+              </div>
+
+              {submission.files && submission.files.length ? (
+                <ul className="mt-3 space-y-2">
+                  {submission.files.map((f) => (
+                    <li
+                      key={f.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-800">
+                          {f.name}
+                        </div>
+                        <div className="text-xs font-semibold text-slate-500">
+                          {formatBytes(f.size)}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => downloadPlaceholderFile(f.name)}
+                          className={cx(
+                            "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2",
+                            "text-xs font-extrabold text-slate-700 shadow-sm transition hover:bg-slate-50 active:bg-slate-100",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                          )}
+                          aria-label={`Download ${f.name}`}
+                          title="Download"
+                        >
+                          <DownloadIcon />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onRemoveFile(f.id)}
+                          className={cx(
+                            "inline-flex items-center justify-center rounded-xl border border-tealbrand-200 bg-white px-3 py-2",
+                            "text-xs font-extrabold text-tealbrand-800 shadow-sm transition hover:bg-tealbrand-50 active:bg-tealbrand-100",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                          )}
+                          aria-label={`Remove ${f.name}`}
+                          title="Remove"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-600">
+                  No files attached.
+                </div>
+              )}
+
+              <div className="mt-4">
+                <label htmlFor={fileId} className="text-sm font-extrabold text-slate-900">
+                  Add Files
+                </label>
+                <input
+                  id={fileId}
+                  type="file"
+                  multiple
+                  onChange={(e) => {
+                    onAddFiles(e.target.files);
+                    // Reset so selecting the same file again re-triggers onChange
+                    e.target.value = "";
+                  }}
+                  className="mt-2 block w-full cursor-pointer rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-tealbrand-600 file:px-4 file:py-2.5 file:text-sm file:font-extrabold file:text-white hover:file:bg-tealbrand-700"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-tealbrand-100 bg-tealbrand-50 px-4 py-3">
+              <div className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-900">
+                Instant Save
+              </div>
+              <div className="mt-1 text-sm font-semibold text-tealbrand-800">
+                Title/description updates as you type, and file add/remove updates immediately.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MeetingModal({ open, submission, onClose, onSchedule }) {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
@@ -659,8 +910,7 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
   if (open && !lastOpenRef.current) {
     // Reset fields on open to make behavior predictable.
     lastOpenRef.current = true;
-    // These state updates are safe in render for this UI-only case? We avoid setState-in-render.
-    // Instead, reset via effect-like behavior using a microtask.
+    // Avoid setState-in-render; reset via microtask.
     queueMicrotask(() => {
       setDate("");
       setTime("");
