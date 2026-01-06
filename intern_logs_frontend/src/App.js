@@ -1,12 +1,24 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import "./App.css";
 
 /**
- * T3Log UI (frontend-only)
- * - Professional teal theme
- * - No sidebar; full-width content container
- * - Role-based views (Intern, Mentor) via frontend-only toggles
- * - Starts empty (no default cards/list items)
+ * T3Log UI (frontend-only) — Spec implementation
+ *
+ * Requirements implemented:
+ * 1) Beautiful login page: teal gradient background, title + tagline, two glowing role cards.
+ * 2) Modern header after login: white/glass bar, teal logo text, single logout button with icon, no sidebar.
+ * 3) Intern dashboard: submit work form + instant history list, auto timestamp, per-file download icons,
+ *    edit + delete per card (interactive state).
+ * 4) Mentor dashboard: grid of intern submissions, per-card actions:
+ *    - Reviewed Successfully -> green badge
+ *    - Want to Connect -> orange badge
+ *    - Schedule Meeting -> opens date/time popup (modal)
+ *    Includes per-file download icon. No global schedule button.
+ * 5) Visual feedback: when meeting scheduled, that specific card gets light amber alert background.
+ *
+ * Notes:
+ * - All actions are UI-only and stored in React state (no backend).
+ * - "Download" uses a generated blob so the icon demonstrates behavior instantly.
  */
 
 // Small utility for className concatenation
@@ -14,565 +26,1010 @@ function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
-function Badge({ variant, children }) {
-  const styles = {
-    success:
-      "bg-emerald-50 text-emerald-800 ring-emerald-200 border-emerald-200",
-    connect:
-      "bg-orange-50 text-orange-800 ring-orange-200 border-orange-200",
-    alert:
-      "bg-amber-50 text-amber-900 ring-amber-200 border-amber-200"
-  };
+// PUBLIC_INTERFACE
+function App() {
+  /** Auth/role */
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [role, setRole] = useState(null); // "intern" | "mentor" | null
+
+  /** Shared in-memory submissions store */
+  const [submissions, setSubmissions] = useState([]);
+
+  /** Seedless behavior: starts empty, per requirement */
+
+  // PUBLIC_INTERFACE
+  function handleLogout() {
+    /** Public interface: logs user out and returns to login UI. */
+    setIsAuthed(false);
+    setRole(null);
+  }
+
+  // PUBLIC_INTERFACE
+  function handleLogin(nextRole) {
+    /** Public interface: performs UI-only login and selects role. */
+    setRole(nextRole);
+    setIsAuthed(true);
+  }
 
   return (
-    <span
-      className={cx(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ring-1 ring-inset",
-        styles[variant] || "bg-slate-50 text-slate-800 ring-slate-200 border-slate-200"
+    <div className="min-h-screen">
+      {!isAuthed ? (
+        <LoginScreen onSelectRole={handleLogin} />
+      ) : (
+        <>
+          <GlassHeader onLogout={handleLogout} />
+          {role === "intern" ? (
+            <InternDashboard submissions={submissions} setSubmissions={setSubmissions} />
+          ) : (
+            <MentorDashboard submissions={submissions} setSubmissions={setSubmissions} />
+          )}
+
+          <footer className="mt-10 border-t border-slate-200/70 bg-white/60 backdrop-blur">
+            <div className="mx-auto w-full max-w-6xl px-4 py-6 text-xs font-semibold text-slate-500 sm:px-6">
+              <span className="text-tealbrand-700">T3Log</span> • UI-only prototype •
+              Instant state updates (no backend)
+            </div>
+          </footer>
+        </>
       )}
-    >
-      {children}
-    </span>
+    </div>
   );
 }
 
-function Button({
-  variant = "primary",
-  size = "md",
-  type = "button",
-  onClick,
-  disabled,
-  children
-}) {
-  const base =
-    "inline-flex items-center justify-center rounded-xl font-semibold transition shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed";
-  const sizes = {
-    sm: "h-9 px-3 text-sm",
-    md: "h-10 px-4 text-sm",
-    lg: "h-11 px-5 text-sm"
-  };
-  const variants = {
-    primary:
-      "bg-tealbrand-600 text-white hover:bg-tealbrand-700 active:bg-tealbrand-800",
-    secondary:
-      "bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 active:bg-slate-100",
-    ghost:
-      "bg-transparent text-slate-700 hover:bg-slate-100 active:bg-slate-200",
-    danger:
-      "bg-slate-900 text-white hover:bg-slate-800 active:bg-slate-950",
-    success:
-      "bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800",
-    connect:
-      "bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700"
-  };
-
+function LoginScreen({ onSelectRole }) {
   return (
-    <button
-      type={type}
-      onClick={onClick}
-      disabled={disabled}
-      className={cx(base, sizes[size] || sizes.md, variants[variant] || variants.primary)}
-    >
-      {children}
-    </button>
-  );
-}
+    <main className="relative min-h-screen overflow-hidden">
+      {/* Background: soft, modern teal gradient */}
+      <div className="absolute inset-0 bg-gradient-to-br from-tealbrand-600 via-tealbrand-500 to-tealbrand-800" />
+      <div className="absolute inset-0 opacity-70 [background:radial-gradient(900px_600px_at_20%_10%,rgba(255,255,255,0.32),transparent_60%),radial-gradient(800px_500px_at_80%_30%,rgba(255,255,255,0.18),transparent_55%)]" />
 
-function Card({ title, subtitle, children, right }) {
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      {(title || subtitle || right) && (
-        <header className="flex flex-col gap-1 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            {title && <h2 className="text-base font-bold text-slate-900">{title}</h2>}
-            {subtitle && (
-              <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
-            )}
+      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col items-center justify-center px-4 py-14 sm:px-6">
+        <div className="w-full max-w-4xl">
+          <div className="text-center">
+            <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-3xl bg-white/15 text-white shadow-[0_20px_50px_-20px_rgba(0,0,0,0.45)] ring-1 ring-white/25 backdrop-blur">
+              <span className="text-lg font-black tracking-tight">T3</span>
+            </div>
+
+            <h1 className="text-balance text-4xl font-black tracking-tight text-white sm:text-5xl">
+              Welcome to T3Log
+            </h1>
+            <p className="mx-auto mt-3 max-w-2xl text-pretty text-sm font-semibold text-white/85 sm:text-base">
+              Precision Tracking. Seamless Mentorship. Elevated Growth.
+            </p>
           </div>
-          {right && <div className="mt-2 sm:mt-0">{right}</div>}
-        </header>
+
+          <div className="mt-10 grid gap-5 md:grid-cols-2">
+            <RoleCard
+              title="I am an Intern"
+              subtitle="Log work with timestamps, manage submissions, and track review status."
+              icon={<InternIcon />}
+              buttonLabel="Access Dashboard"
+              onClick={() => onSelectRole("intern")}
+            />
+            <RoleCard
+              title="I am a Mentor"
+              subtitle="Review intern submissions, set statuses, and schedule meetings."
+              icon={<MentorIcon />}
+              buttonLabel="Review Submissions"
+              onClick={() => onSelectRole("mentor")}
+            />
+          </div>
+
+          <div className="mt-10 text-center text-xs font-semibold text-white/75">
+            UI-only login (no credentials) — choose a role to continue.
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function RoleCard({ title, subtitle, icon, buttonLabel, onClick }) {
+  return (
+    <section
+      className={cx(
+        "group relative overflow-hidden rounded-3xl border border-white/20 bg-white/10 p-6 shadow-[0_18px_60px_-30px_rgba(0,0,0,0.60)] backdrop-blur",
+        "transition duration-300 hover:-translate-y-1 hover:bg-white/14 hover:shadow-[0_25px_70px_-35px_rgba(0,0,0,0.70)]",
+        "focus-within:ring-2 focus-within:ring-white/70"
       )}
-      <div className="px-5 py-5">{children}</div>
+    >
+      {/* Glow on hover */}
+      <div className="pointer-events-none absolute inset-0 opacity-0 transition duration-300 group-hover:opacity-100">
+        <div className="absolute -left-20 -top-20 h-48 w-48 rounded-full bg-white/15 blur-2xl" />
+        <div className="absolute -bottom-24 -right-24 h-60 w-60 rounded-full bg-tealbrand-200/25 blur-3xl" />
+      </div>
+
+      <div className="relative">
+        <div className="flex items-start justify-between gap-4">
+          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/15 text-white ring-1 ring-white/25">
+            {icon}
+          </div>
+          <div className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-bold text-white/85 ring-1 ring-white/15">
+            Role
+          </div>
+        </div>
+
+        <h2 className="mt-5 text-xl font-extrabold tracking-tight text-white">
+          {title}
+        </h2>
+        <p className="mt-2 text-sm font-semibold text-white/80">{subtitle}</p>
+
+        <button
+          type="button"
+          onClick={onClick}
+          className={cx(
+            "mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-extrabold text-tealbrand-800",
+            "shadow-sm transition hover:bg-white/95 active:bg-white/90",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-700"
+          )}
+        >
+          {buttonLabel}
+          <span aria-hidden="true" className="text-base">
+            →
+          </span>
+        </button>
+      </div>
     </section>
+  );
+}
+
+function GlassHeader({ onLogout }) {
+  return (
+    <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/70 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-tealbrand-600 text-white shadow-sm">
+            <span className="text-sm font-black">T3</span>
+          </div>
+          <div className="leading-tight">
+            <div className="text-lg font-black tracking-tight text-tealbrand-700">
+              T3Log
+            </div>
+            <div className="text-xs font-semibold text-slate-500">
+              Precision tracking • Seamless mentorship
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onLogout}
+          className={cx(
+            "inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-extrabold text-slate-800",
+            "shadow-sm transition hover:bg-slate-50 active:bg-slate-100",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+          )}
+        >
+          <LogoutIcon />
+          Logout
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function InternDashboard({ submissions, setSubmissions }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [fileList, setFileList] = useState([]);
+  const [editId, setEditId] = useState(null);
+
+  // PUBLIC_INTERFACE
+  function handleSubmit(e) {
+    /** Public interface: add or update a submission and instantly reflect in history. */
+    e.preventDefault();
+
+    const trimmedTitle = title.trim();
+    const trimmedDesc = description.trim();
+
+    if (!trimmedTitle || !trimmedDesc) return;
+
+    const now = new Date();
+    const timestampIso = now.toISOString();
+    const timestampLabel = now.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+
+    const files = Array.from(fileList || []).map((f) => ({
+      id: cryptoLikeId(),
+      name: f.name || "file",
+      size: typeof f.size === "number" ? f.size : 0
+    }));
+
+    if (editId) {
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === editId
+            ? {
+                ...s,
+                title: trimmedTitle,
+                description: trimmedDesc,
+                // Keep original timestamp for edit; spec doesn't require updating timestamp on edit.
+                files: files.length ? files : s.files
+              }
+            : s
+        )
+      );
+    } else {
+      setSubmissions((prev) => [
+        {
+          id: cryptoLikeId(),
+          title: trimmedTitle,
+          description: trimmedDesc,
+          timestampIso,
+          timestampLabel,
+          files,
+          // mentor-controlled fields
+          status: "none", // "none" | "success" | "connect"
+          meeting: null // { date, time, description } | null
+        },
+        ...prev
+      ]);
+    }
+
+    setTitle("");
+    setDescription("");
+    setFileList([]);
+    setEditId(null);
+  }
+
+  // PUBLIC_INTERFACE
+  function startEdit(submission) {
+    /** Public interface: load submission into form for editing. */
+    setEditId(submission.id);
+    setTitle(submission.title);
+    setDescription(submission.description);
+    setFileList([]);
+  }
+
+  // PUBLIC_INTERFACE
+  function deleteSubmission(id) {
+    /** Public interface: delete submission from history. */
+    setSubmissions((prev) => prev.filter((s) => s.id !== id));
+    if (editId === id) {
+      setEditId(null);
+      setTitle("");
+      setDescription("");
+      setFileList([]);
+    }
+  }
+
+  const hasAny = submissions.length > 0;
+
+  return (
+    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+      <div className="grid gap-6 lg:grid-cols-5">
+        <div className="lg:col-span-2">
+          <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <header className="border-b border-slate-200 px-5 py-5">
+              <h2 className="text-base font-black text-slate-900">
+                {editId ? "Edit Work" : "Submit Work"}
+              </h2>
+              <p className="mt-1 text-sm font-semibold text-slate-600">
+                Fields: Work Title, Description, File Upload. Timestamp is captured on submission.
+              </p>
+            </header>
+
+            <div className="px-5 py-5">
+              <form className="space-y-4" onSubmit={handleSubmit}>
+                <div>
+                  <label htmlFor="workTitle" className="text-sm font-extrabold text-slate-900">
+                    Work Title
+                  </label>
+                  <input
+                    id="workTitle"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g., Weekly progress report"
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="workDesc" className="text-sm font-extrabold text-slate-900">
+                    Description
+                  </label>
+                  <textarea
+                    id="workDesc"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Write a short summary of what you completed, blockers, and next steps…"
+                    rows={5}
+                    className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="workFile" className="text-sm font-extrabold text-slate-900">
+                    File Upload
+                  </label>
+                  <input
+                    id="workFile"
+                    type="file"
+                    multiple
+                    onChange={(e) => setFileList(e.target.files)}
+                    className="mt-2 block w-full cursor-pointer rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-tealbrand-600 file:px-4 file:py-2.5 file:text-sm file:font-extrabold file:text-white hover:file:bg-tealbrand-700"
+                  />
+                  <p className="mt-2 text-xs font-semibold text-slate-500">
+                    UI-only upload. File names are stored in state so download icons can be shown.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-tealbrand-100 bg-tealbrand-50 px-4 py-3">
+                  <div className="text-sm font-black text-tealbrand-900">Auto-timestamp</div>
+                  <div className="mt-1 text-sm font-semibold text-tealbrand-800">
+                    Date and time will be captured automatically when you submit.
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2">
+                  {editId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditId(null);
+                        setTitle("");
+                        setDescription("");
+                        setFileList([]);
+                      }}
+                      className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <button
+                      type="reset"
+                      onClick={() => {
+                        setTitle("");
+                        setDescription("");
+                        setFileList([]);
+                      }}
+                      className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+                    >
+                      Clear
+                    </button>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                  >
+                    {editId ? "Save Changes" : "Submit"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </section>
+        </div>
+
+        <div className="lg:col-span-3">
+          <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <header className="border-b border-slate-200 px-5 py-5">
+              <h2 className="text-base font-black text-slate-900">History</h2>
+              <p className="mt-1 text-sm font-semibold text-slate-600">
+                Submissions appear instantly below with timestamps, file downloads, and edit/delete controls.
+              </p>
+            </header>
+
+            <div className="px-5 py-5">
+              {!hasAny ? (
+                <EmptyState
+                  title="No submissions yet"
+                  description="Submit your first work item to see it appear here instantly."
+                />
+              ) : (
+                <div className="space-y-4">
+                  {submissions.map((s) => (
+                    <SubmissionCard
+                      key={s.id}
+                      submission={s}
+                      variant="intern"
+                      onEdit={() => startEdit(s)}
+                      onDelete={() => deleteSubmission(s.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function MentorDashboard({ submissions, setSubmissions }) {
+  const [meetingTargetId, setMeetingTargetId] = useState(null);
+
+  const meetingTarget = useMemo(() => {
+    if (!meetingTargetId) return null;
+    return submissions.find((s) => s.id === meetingTargetId) || null;
+  }, [meetingTargetId, submissions]);
+
+  // PUBLIC_INTERFACE
+  function markSuccess(id) {
+    /** Public interface: marks a submission as Reviewed Successfully (green badge). */
+    setSubmissions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, status: "success" } : s))
+    );
+  }
+
+  // PUBLIC_INTERFACE
+  function markConnect(id) {
+    /** Public interface: marks a submission as Want to Connect (orange badge). */
+    setSubmissions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, status: "connect" } : s))
+    );
+  }
+
+  // PUBLIC_INTERFACE
+  function scheduleMeeting(id, meeting) {
+    /** Public interface: sets meeting for a submission; triggers alert background in that card. */
+    setSubmissions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, meeting } : s))
+    );
+  }
+
+  return (
+    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+      <div className="mb-6">
+        <h1 className="text-xl font-black tracking-tight text-slate-900">
+          Mentor Dashboard
+        </h1>
+        <p className="mt-1 text-sm font-semibold text-slate-600">
+          Review intern submissions as cards. Actions live inside each work card (no global schedule button).
+        </p>
+      </div>
+
+      {submissions.length === 0 ? (
+        <EmptyState
+          title="No intern submissions yet"
+          description="Once an intern submits work, cards will appear here in a grid for review."
+        />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {submissions.map((s) => (
+            <SubmissionCard
+              key={s.id}
+              submission={s}
+              variant="mentor"
+              onReviewedSuccessfully={() => markSuccess(s.id)}
+              onWantToConnect={() => markConnect(s.id)}
+              onScheduleMeeting={() => setMeetingTargetId(s.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      <MeetingModal
+        open={Boolean(meetingTarget)}
+        submission={meetingTarget}
+        onClose={() => setMeetingTargetId(null)}
+        onSchedule={(meeting) => {
+          if (!meetingTarget) return;
+          scheduleMeeting(meetingTarget.id, meeting);
+          setMeetingTargetId(null);
+        }}
+      />
+    </main>
+  );
+}
+
+function SubmissionCard({
+  submission,
+  variant,
+  onEdit,
+  onDelete,
+  onReviewedSuccessfully,
+  onWantToConnect,
+  onScheduleMeeting
+}) {
+  const statusBadge =
+    submission.status === "success" ? (
+      <StatusBadge kind="success" label="Reviewed Successfully" />
+    ) : submission.status === "connect" ? (
+      <StatusBadge kind="connect" label="Want to Connect" />
+    ) : null;
+
+  const hasMeeting = Boolean(submission.meeting);
+  const alertCard = hasMeeting && variant === "mentor";
+
+  return (
+    <article
+      className={cx(
+        "rounded-3xl border shadow-sm transition",
+        alertCard
+          ? "border-amber-200 bg-amber-50"
+          : "border-slate-200 bg-white",
+        variant === "mentor" ? "p-5" : "p-5"
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-black text-slate-900">{submission.title}</h3>
+          <div className="mt-1 text-xs font-semibold text-slate-500">
+            {submission.timestampLabel}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {statusBadge}
+          {hasMeeting ? <StatusBadge kind="alert" label="Meeting Scheduled" /> : null}
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm font-semibold text-slate-700">
+        {submission.description}
+      </p>
+
+      <div className="mt-4 space-y-2">
+        <div className="text-xs font-extrabold uppercase tracking-wide text-slate-500">
+          Files
+        </div>
+
+        {submission.files && submission.files.length ? (
+          <ul className="space-y-2">
+            {submission.files.map((f) => (
+              <li
+                key={f.id}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/70 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-slate-800">
+                    {f.name}
+                  </div>
+                  <div className="text-xs font-semibold text-slate-500">
+                    {formatBytes(f.size)}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => downloadPlaceholderFile(f.name)}
+                  className={cx(
+                    "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2",
+                    "text-xs font-extrabold text-slate-700 shadow-sm transition hover:bg-slate-50 active:bg-slate-100",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                  )}
+                  aria-label={`Download ${f.name}`}
+                  title="Download"
+                >
+                  <DownloadIcon />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-600">
+            No files attached.
+          </div>
+        )}
+      </div>
+
+      {submission.meeting ? (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
+            Scheduled Meeting
+          </div>
+          <div className="mt-1 text-sm font-semibold text-amber-950">
+            {submission.meeting.date} • {submission.meeting.time}
+          </div>
+          <div className="mt-1 text-sm font-semibold text-amber-900">
+            {submission.meeting.description}
+          </div>
+        </div>
+      ) : null}
+
+      {variant === "intern" ? (
+        <div className="mt-5 flex items-center justify-end gap-2">
+          <IconButton label="Edit" onClick={onEdit}>
+            <EditIcon />
+          </IconButton>
+          <IconButton label="Delete" onClick={onDelete} danger>
+            <TrashIcon />
+          </IconButton>
+        </div>
+      ) : (
+        <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <ActionButton kind="success" onClick={onReviewedSuccessfully}>
+            Reviewed Successfully
+          </ActionButton>
+          <ActionButton kind="connect" onClick={onWantToConnect}>
+            Want to Connect
+          </ActionButton>
+          <ActionButton kind="schedule" onClick={onScheduleMeeting}>
+            Schedule Meeting
+          </ActionButton>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function MeetingModal({ open, submission, onClose, onSchedule }) {
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [desc, setDesc] = useState("");
+
+  const lastOpenRef = useRef(false);
+  if (open && !lastOpenRef.current) {
+    // Reset fields on open to make behavior predictable.
+    lastOpenRef.current = true;
+    // These state updates are safe in render for this UI-only case? We avoid setState-in-render.
+    // Instead, reset via effect-like behavior using a microtask.
+    queueMicrotask(() => {
+      setDate("");
+      setTime("");
+      setDesc("");
+    });
+  }
+  if (!open && lastOpenRef.current) lastOpenRef.current = false;
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Schedule Meeting"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
+        <header className="border-b border-slate-200 px-5 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-black text-slate-900">
+                Schedule Meeting
+              </h2>
+              <p className="mt-1 text-sm font-semibold text-slate-600">
+                Choose date/time and add a short description. This will mark the card as an alert (light amber).
+              </p>
+              {submission ? (
+                <div className="mt-2 text-xs font-semibold text-slate-500">
+                  For: <span className="font-extrabold text-slate-700">{submission.title}</span>
+                </div>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+            >
+              Close
+            </button>
+          </div>
+        </header>
+
+        <div className="px-5 py-5">
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const d = date.trim();
+              const t = time.trim();
+              const s = desc.trim();
+              if (!d || !t || !s) return;
+              onSchedule({ date: d, time: t, description: s });
+            }}
+          >
+            <div>
+              <label htmlFor="mDate" className="text-sm font-extrabold text-slate-900">
+                Date
+              </label>
+              <input
+                id="mDate"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="mTime" className="text-sm font-extrabold text-slate-900">
+                Time
+              </label>
+              <input
+                id="mTime"
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="mDesc" className="text-sm font-extrabold text-slate-900">
+                Short Description
+              </label>
+              <textarea
+                id="mDesc"
+                value={desc}
+                onChange={(e) => setDesc(e.target.value)}
+                placeholder="e.g., Quick check-in on recent submission and next steps."
+                rows={4}
+                className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+              >
+                Schedule
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
+              Visual Feedback
+            </div>
+            <div className="mt-1 text-sm font-semibold text-amber-900">
+              Once scheduled, the specific mentor card will change to a noticeable light amber background.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
 function EmptyState({ title, description }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
-      <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-      <p className="mx-auto mt-2 max-w-xl text-sm text-slate-600">
+    <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
+      <h3 className="text-sm font-black text-slate-900">{title}</h3>
+      <p className="mx-auto mt-2 max-w-xl text-sm font-semibold text-slate-600">
         {description}
       </p>
     </div>
   );
 }
 
-function FieldLabel({ htmlFor, children }) {
-  return (
-    <label htmlFor={htmlFor} className="text-sm font-semibold text-slate-900">
-      {children}
-    </label>
-  );
-}
-
-function TextInput({ id, placeholder }) {
-  return (
-    <input
-      id={id}
-      placeholder={placeholder}
-      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-    />
-  );
-}
-
-function TextArea({ id, placeholder }) {
-  return (
-    <textarea
-      id={id}
-      placeholder={placeholder}
-      rows={5}
-      className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-    />
-  );
-}
-
-function FileUpload({ id }) {
-  return (
-    <div className="mt-2">
-      <input
-        id={id}
-        type="file"
-        className="block w-full cursor-pointer rounded-xl border border-slate-200 bg-white text-sm text-slate-700 file:mr-4 file:cursor-pointer file:rounded-lg file:border-0 file:bg-tealbrand-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-tealbrand-700"
-      />
-      <p className="mt-2 text-xs text-slate-500">
-        Upload is UI-only for now. (No backend logic yet.)
-      </p>
-    </div>
-  );
-}
-
-function Modal({ open, title, onClose, children }) {
-  if (!open) return null;
+function StatusBadge({ kind, label }) {
+  const styles = {
+    success: "bg-emerald-50 text-emerald-800 ring-emerald-200 border-emerald-200",
+    connect: "bg-orange-50 text-orange-800 ring-orange-200 border-orange-200",
+    alert: "bg-amber-50 text-amber-900 ring-amber-200 border-amber-200"
+  };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-4 sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      onMouseDown={(e) => {
-        // Close when clicking backdrop, not when clicking the panel
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <span
+      className={cx(
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-extrabold ring-1 ring-inset",
+        styles[kind] || "bg-slate-50 text-slate-800 ring-slate-200 border-slate-200"
+      )}
     >
-      <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-xl">
-        <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">{title}</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              UI-only. Submission history starts empty.
-            </p>
-          </div>
-          <Button variant="secondary" onClick={onClose}>
-            Close
-          </Button>
-        </header>
-        <div className="px-5 py-5">{children}</div>
-      </div>
-    </div>
+      {label}
+    </span>
   );
 }
 
-function Header({ role, setRole }) {
+function ActionButton({ kind, children, onClick }) {
+  const variants = {
+    success:
+      "bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 focus-visible:ring-emerald-300",
+    connect:
+      "bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 focus-visible:ring-orange-300",
+    schedule:
+      "bg-tealbrand-600 text-white hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:ring-tealbrand-300"
+  };
+
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-        <div className="flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-tealbrand-600 text-white shadow-sm">
-            <span className="text-sm font-black">T3</span>
-          </div>
-          <div>
-            <div className="text-lg font-black tracking-tight text-slate-900">
-              T3Log
-            </div>
-            <div className="text-xs font-semibold text-slate-500">
-              Intern work logging • Mentor review • Meeting scheduling
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div
-            className="hidden rounded-2xl border border-slate-200 bg-slate-50 p-1 sm:flex"
-            aria-label="Role selector"
-          >
-            <button
-              className={cx(
-                "rounded-xl px-3 py-2 text-sm font-bold transition",
-                role === "intern"
-                  ? "bg-white text-tealbrand-700 shadow-sm"
-                  : "text-slate-600 hover:bg-white"
-              )}
-              onClick={() => setRole("intern")}
-              type="button"
-            >
-              Intern
-            </button>
-            <button
-              className={cx(
-                "rounded-xl px-3 py-2 text-sm font-bold transition",
-                role === "mentor"
-                  ? "bg-white text-tealbrand-700 shadow-sm"
-                  : "text-slate-600 hover:bg-white"
-              )}
-              onClick={() => setRole("mentor")}
-              type="button"
-            >
-              Mentor
-            </button>
-          </div>
-
-          {/* Mobile role selector */}
-          <select
-            className="sm:hidden rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            aria-label="Role selector"
-          >
-            <option value="intern">Intern</option>
-            <option value="mentor">Mentor</option>
-          </select>
-
-          <Button variant="secondary">Logout</Button>
-        </div>
-      </div>
-    </header>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "inline-flex h-10 items-center justify-center rounded-2xl px-3 text-xs font-extrabold shadow-sm transition",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+        variants[kind] || variants.schedule
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
-function InternView() {
-  const [hasMeetingScheduled] = useState(false);
-
+function IconButton({ label, onClick, danger, children }) {
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-      <div className="grid gap-6 lg:grid-cols-5">
-        <div className="lg:col-span-2">
-          <Card
-            title="Submit Work"
-            subtitle="Log what you worked on. Date and time are automatically captured upon submission."
-          >
-            <form className="space-y-4">
-              <div>
-                <FieldLabel htmlFor="workTitle">Work Title</FieldLabel>
-                <TextInput id="workTitle" placeholder="e.g., Weekly progress report" />
-              </div>
-
-              <div>
-                <FieldLabel htmlFor="workDesc">Description</FieldLabel>
-                <TextArea
-                  id="workDesc"
-                  placeholder="Write a short summary of what you completed, blockers, and next steps…"
-                />
-              </div>
-
-              <div>
-                <FieldLabel htmlFor="workFile">File Upload</FieldLabel>
-                <FileUpload id="workFile" />
-              </div>
-
-              <div className="rounded-xl border border-tealbrand-100 bg-tealbrand-50 px-4 py-3">
-                <div className="text-sm font-bold text-tealbrand-900">
-                  Auto-timestamp
-                </div>
-                <div className="mt-1 text-sm text-tealbrand-800">
-                  Date and time will be captured automatically when you submit.
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2">
-                <Button variant="secondary" type="reset">
-                  Clear
-                </Button>
-                <Button type="submit">Submit</Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-
-        <div className="lg:col-span-3">
-          <Card
-            title="History"
-            subtitle="Your submitted works will appear here."
-            right={
-              <div className="flex items-center gap-2">
-                <Badge variant="success">Reviewed Successful</Badge>
-                <Badge variant="connect">Want to Connect</Badge>
-              </div>
-            }
-          >
-            {hasMeetingScheduled ? (
-              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-black text-amber-950">
-                      Meeting Scheduled
-                    </div>
-                    <div className="mt-1 text-sm text-amber-900">
-                      A mentor scheduled a meeting. Check details in your next
-                      notification.
-                    </div>
-                  </div>
-                  <Badge variant="alert">Attention</Badge>
-                </div>
-              </div>
-            ) : null}
-
-            <EmptyState
-              title="No submissions yet"
-              description="Once you submit work, it will show up here with status badges such as Reviewed Successful (green) or Want to Connect (orange)."
-            />
-          </Card>
-        </div>
-      </div>
-    </main>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-extrabold shadow-sm transition",
+        danger
+          ? "border-slate-200 bg-slate-900 text-white hover:bg-slate-800 active:bg-slate-950"
+          : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50 active:bg-slate-100",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+      )}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+      <span className="hidden sm:inline">{label}</span>
+    </button>
   );
 }
 
-function MentorView() {
-  const [selectedIntern, setSelectedIntern] = useState(null);
-  const [meetingOpen, setMeetingOpen] = useState(false);
+/** Helpers */
 
-  const participants = useMemo(() => {
-    // Requirement: No default data. Keep empty until backend is wired.
-    return [];
-  }, []);
+function cryptoLikeId() {
+  // Avoid external deps; provide stable-enough ids for UI state.
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const idx = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / Math.pow(1024, idx);
+  return `${value.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function downloadPlaceholderFile(filename) {
+  const safeName = filename || "download.txt";
+  const content = `T3Log UI-only download\n\nFilename: ${safeName}\nGenerated: ${new Date().toLocaleString()}\n\nThis is placeholder content to demonstrate a download action without a backend.`;
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = safeName.endsWith(".txt") ? safeName : `${safeName}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+/** Icons (inline SVG, no deps) */
+
+function DownloadIcon() {
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-xl font-black tracking-tight text-slate-900">
-            Participants
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Select an intern to review submissions and schedule meetings.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setMeetingOpen(true)}>
-            <span className="mr-2 text-base" aria-hidden="true">
-              📅
-            </span>
-            Schedule Meeting
-          </Button>
-        </div>
-      </div>
-
-      <div className="mt-6">
-        {participants.length === 0 ? (
-          <EmptyState
-            title="No interns to display"
-            description="Intern cards will appear here in a grid once participant data is available."
-          />
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {participants.map((intern) => (
-              <button
-                key={intern.id}
-                type="button"
-                onClick={() => setSelectedIntern(intern)}
-                className="group rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-tealbrand-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-black text-slate-900">
-                      {intern.name}
-                    </div>
-                    <div className="mt-1 text-sm text-slate-600">
-                      {intern.email}
-                    </div>
-                  </div>
-                  <span className="rounded-xl bg-tealbrand-50 px-2 py-1 text-xs font-bold text-tealbrand-800">
-                    View
-                  </span>
-                </div>
-                <div className="mt-4 flex items-center gap-2">
-                  <Badge variant="success">Reviewed Successful</Badge>
-                  <Badge variant="connect">Want to Connect</Badge>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <Modal
-        open={Boolean(selectedIntern)}
-        title={selectedIntern ? `${selectedIntern.name}` : "Intern Detail"}
-        onClose={() => setSelectedIntern(null)}
-      >
-        <div className="grid gap-5 lg:grid-cols-5">
-          <div className="lg:col-span-3">
-            <Card
-              title="Submission History"
-              subtitle="Each submission will have Download and status controls."
-            >
-              <EmptyState
-                title="No submissions yet"
-                description="Once this intern submits work, items will appear here with buttons: Download, Mark Success (green), Want to Connect (orange)."
-              />
-            </Card>
-          </div>
-
-          <div className="lg:col-span-2">
-            <Card
-              title="Action Controls (Preview)"
-              subtitle="UI-only controls (no data yet)."
-            >
-              <div className="space-y-3">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-sm font-black text-slate-900">
-                    Submission Item Controls
-                  </div>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Shown on each submission:
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button variant="secondary" size="sm">
-                      Download
-                    </Button>
-                    <Button variant="success" size="sm">
-                      Success
-                    </Button>
-                    <Button variant="connect" size="sm">
-                      Connect
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-black text-slate-900">
-                        Meeting Scheduler
-                      </div>
-                      <div className="mt-1 text-sm text-slate-600">
-                        Date, time, and a short description.
-                      </div>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setMeetingOpen(true)}
-                    >
-                      Open
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal
-        open={meetingOpen}
-        title="Schedule Meeting"
-        onClose={() => setMeetingOpen(false)}
-      >
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Card
-            title="Meeting Details"
-            subtitle="Choose a date/time and add a short description."
-          >
-            <form className="space-y-4">
-              <div>
-                <FieldLabel htmlFor="meetingDate">Date</FieldLabel>
-                <input
-                  id="meetingDate"
-                  type="date"
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-                />
-              </div>
-
-              <div>
-                <FieldLabel htmlFor="meetingTime">Time</FieldLabel>
-                <input
-                  id="meetingTime"
-                  type="time"
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-                />
-              </div>
-
-              <div>
-                <FieldLabel htmlFor="meetingDesc">Short Description</FieldLabel>
-                <TextArea
-                  id="meetingDesc"
-                  placeholder="e.g., Quick check-in on recent submission and next steps."
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2">
-                <Button variant="secondary" onClick={() => setMeetingOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">Schedule</Button>
-              </div>
-            </form>
-          </Card>
-
-          <Card
-            title="How it will appear (Intern)"
-            subtitle="High-contrast alert card in intern history when scheduled."
-          >
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-black text-amber-950">
-                    Meeting Scheduled
-                  </div>
-                  <div className="mt-1 text-sm text-amber-900">
-                    Date/time and description will be visible here once integrated.
-                  </div>
-                </div>
-                <Badge variant="alert">Alert</Badge>
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <div className="text-sm font-bold text-slate-900">Status Badges</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Badge variant="success">Reviewed Successful</Badge>
-                <Badge variant="connect">Want to Connect</Badge>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </Modal>
-    </main>
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+      <path
+        d="M12 3v10m0 0 4-4m-4 4-4-4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 17v3h16v-3"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 
-// PUBLIC_INTERFACE
-function App() {
-  const [role, setRole] = useState("intern");
-
+function EditIcon() {
   return (
-    <div className="min-h-screen">
-      <Header role={role} setRole={setRole} />
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+      <path
+        d="M12 20h9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
-      {/* Full-width content, no sidebar */}
-      {role === "intern" ? <InternView /> : <MentorView />}
+function TrashIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+      <path
+        d="M3 6h18"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M8 6V4h8v2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6 6l1 16h10l1-16"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 11v6M14 11v6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
-      <footer className="border-t border-slate-200 bg-white/70">
-        <div className="mx-auto w-full max-w-6xl px-4 py-6 text-sm text-slate-500 sm:px-6">
-          <span className="font-semibold text-slate-700">T3Log</span> • UI-only
-          prototype • Teal theme • No backend/data yet
-        </div>
-      </footer>
-    </div>
+function LogoutIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+      <path
+        d="M10 7V5a2 2 0 0 1 2-2h7v18h-7a2 2 0 0 1-2-2v-2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13 12H3m0 0 3-3m-3 3 3 3"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function InternIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+      <path
+        d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="M4 21a8 8 0 0 1 16 0"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function MentorIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+      <path
+        d="M3 7l9-4 9 4-9 4-9-4Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M21 10v6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M5 11v5c0 1 3 3 7 3s7-2 7-3v-5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
