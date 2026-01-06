@@ -2,10 +2,10 @@
 
 The previous run could not access the referenced attachment file path in this environment.
 
-Please paste the *authoritative* “latest edits” instructions here (verbatim), including any bullet lists / text changes / UI behavior changes for:
-- Login screen
-- Intern Dashboard
-- Any other related UI changes
+Authoritative note for this change:
+- The Schedule Meeting modal must NOT include the “Scheduled Color Rule” section (the labeled rule + its description block) at the bottom of the modal.
+
+If there are additional “latest edits” beyond removing that section, paste them here verbatim so they can be applied deterministically.
 
 Notes:
 - Current implementation is primarily in `src/App.js`.

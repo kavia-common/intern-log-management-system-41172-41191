@@ -1015,14 +1015,7 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
             </div>
           </form>
 
-          <div className="mt-5 rounded-2xl border border-amber-300/60 bg-amber-200/20 px-4 py-3">
-            <div className="text-xs font-extrabold uppercase tracking-wide text-amber-50">
-              Scheduled Color Rule
-            </div>
-            <div className="mt-1 text-sm font-semibold text-amber-50/90">
-              After scheduling, the matching card (intern + mentor) uses light orange with a dark orange border immediately.
-            </div>
-          </div>
+
         </div>
       </div>
     </div>
