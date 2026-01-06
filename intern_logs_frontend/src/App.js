@@ -57,7 +57,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-slate-100">
       {!isAuthed ? (
         <LoginScreen onSelectRole={handleLogin} />
       ) : (
@@ -340,8 +340,8 @@ function InternDashboard({ submissions, setSubmissions }) {
         <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
           <div className="grid gap-6 lg:grid-cols-5">
             <div className="lg:col-span-2">
-              <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-                <header className="border-b border-slate-200 px-5 py-5">
+              <section className="rounded-3xl border-2 border-tealbrand-800 bg-tealbrand-50 shadow-sm">
+                <header className="border-b border-tealbrand-200 px-5 py-5">
                   <h2 className="text-base font-black text-slate-900">
                     Submit Work
                   </h2>
@@ -428,8 +428,8 @@ function InternDashboard({ submissions, setSubmissions }) {
             </div>
 
             <div className="lg:col-span-3">
-              <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-                <header className="border-b border-slate-200 px-5 py-5">
+              <section className="rounded-3xl border-2 border-tealbrand-800 bg-tealbrand-50 shadow-sm">
+                <header className="border-b border-tealbrand-200 px-5 py-5">
                   <h2 className="text-base font-black text-slate-900">History</h2>
                   <p className="mt-1 text-sm font-semibold text-slate-600">
                     Submissions appear instantly below with timestamps, file downloads, and edit/delete controls.
@@ -569,7 +569,8 @@ function SubmissionCard({
     ) : null;
 
   const hasMeeting = Boolean(submission.meeting);
-  // Requirement: when a meeting is scheduled, the entire card becomes soft amber/yellow (visual priority).
+  // Requirement: when a meeting is scheduled, the entire card becomes soft amber (visual priority).
+  // This is driven entirely by React state (`submission.meeting`) so it updates instantly.
   const alertCard = hasMeeting && variant === "mentor";
 
   // Requirement: all work cards (intern history + mentor cards) use dark teal border + pale teal background.
@@ -579,7 +580,7 @@ function SubmissionCard({
     <article
       className={cx(
         "rounded-3xl border-2 shadow-sm transition",
-        alertCard ? "border-amber-300 bg-amber-100" : baseCardTone,
+        alertCard ? "border-amber-400 bg-amber-200/70" : baseCardTone,
         "p-5"
       )}
     >
@@ -746,12 +747,12 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Requirement: compact modal (not full screen), with top/bottom margin and internal scroll */}
-      <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-tealbrand-200/60 bg-white shadow-xl">
-        <header className="border-b border-tealbrand-100 bg-gradient-to-r from-tealbrand-600 to-tealbrand-700 px-5 py-4 text-white">
+      {/* Requirement: compact modal (not full screen), with top/bottom margin, internal scroll, dark-teal style */}
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl border-2 border-tealbrand-900 bg-tealbrand-900 shadow-xl">
+        <header className="border-b border-tealbrand-800/70 px-5 py-4 text-white">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-base font-black">Edit Submission</h2>
+              <h2 className="text-base font-black tracking-tight">Edit Submission</h2>
               <div className="mt-1 text-xs font-semibold text-white/85">
                 Submitted:{" "}
                 <span className="font-extrabold text-white">
@@ -764,9 +765,9 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
               type="button"
               onClick={onClose}
               className={cx(
-                "inline-flex h-9 items-center justify-center rounded-2xl bg-white px-3 text-xs font-extrabold text-tealbrand-800",
-                "shadow-sm transition hover:bg-white/95 active:bg-white/90",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-700"
+                "inline-flex h-9 items-center justify-center rounded-2xl border border-white/25 bg-white/10 px-3 text-xs font-extrabold text-white",
+                "shadow-sm transition hover:bg-white/15 active:bg-white/20",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
               )}
             >
               ✕
@@ -781,7 +782,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
             <div>
               <label
                 htmlFor={titleId}
-                className="text-sm font-extrabold text-slate-900"
+                className="text-sm font-extrabold text-white"
               >
                 Work Title
               </label>
@@ -791,14 +792,14 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 value={draftTitle}
                 onChange={(e) => setDraftTitle(e.target.value)}
                 placeholder="e.g., Weekly progress report"
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                className="mt-2 w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
               />
             </div>
 
             <div>
               <label
                 htmlFor={descId}
-                className="text-sm font-extrabold text-slate-900"
+                className="text-sm font-extrabold text-white"
               >
                 Description
               </label>
@@ -808,18 +809,16 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 onChange={(e) => setDraftDescription(e.target.value)}
                 placeholder="Write a short summary…"
                 rows={6}
-                className="mt-2 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                className="mt-2 w-full resize-none rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
               />
-              <div className="mt-1 text-xs font-semibold text-slate-500">
+              <div className="mt-1 text-xs font-semibold text-white/75">
                 Scroll inside the modal if content is long.
               </div>
             </div>
 
             <div>
-              <div className="text-sm font-extrabold text-slate-900">
-                Attached Files
-              </div>
-              <div className="mt-1 text-xs font-semibold text-slate-500">
+              <div className="text-sm font-extrabold text-white">Attached Files</div>
+              <div className="mt-1 text-xs font-semibold text-white/75">
                 Remove existing files or add new ones. Changes apply when you click “Save Changes”.
               </div>
 
@@ -828,13 +827,13 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                   {draftFiles.map((f) => (
                     <li
                       key={f.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/10 px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-800">
+                        <div className="truncate text-sm font-semibold text-white">
                           {f.name}
                         </div>
-                        <div className="text-xs font-semibold text-slate-500">
+                        <div className="text-xs font-semibold text-white/70">
                           {formatBytes(f.size)}
                         </div>
                       </div>
@@ -844,9 +843,9 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                           type="button"
                           onClick={() => downloadPlaceholderFile(f.name)}
                           className={cx(
-                            "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2",
-                            "text-xs font-extrabold text-slate-700 shadow-sm transition hover:bg-slate-50 active:bg-slate-100",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                            "inline-flex items-center justify-center rounded-xl border border-white/20 bg-white px-3 py-2",
+                            "text-xs font-extrabold text-tealbrand-900 shadow-sm transition hover:bg-white/95 active:bg-white/90",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
                           )}
                           aria-label={`Download ${f.name}`}
                           title="Download"
@@ -860,9 +859,9 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                             setDraftFiles((prev) => prev.filter((x) => x.id !== f.id))
                           }
                           className={cx(
-                            "inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2",
-                            "text-xs font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                            "inline-flex items-center justify-center rounded-xl border border-white/25 bg-white/10 px-3 py-2",
+                            "text-xs font-extrabold text-white shadow-sm transition hover:bg-white/15 active:bg-white/20",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
                           )}
                           aria-label={`Remove ${f.name}`}
                           title="Remove"
@@ -874,16 +873,13 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                   ))}
                 </ul>
               ) : (
-                <div className="mt-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-600">
+                <div className="mt-3 rounded-2xl border border-dashed border-white/25 bg-white/10 px-4 py-4 text-sm font-semibold text-white/85">
                   No files attached.
                 </div>
               )}
 
               <div className="mt-4">
-                <label
-                  htmlFor={fileId}
-                  className="text-sm font-extrabold text-slate-900"
-                >
+                <label htmlFor={fileId} className="text-sm font-extrabold text-white">
                   Add Files
                 </label>
                 <input
@@ -900,7 +896,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                     // Reset so selecting the same file again re-triggers onChange
                     e.target.value = "";
                   }}
-                  className="mt-2 block w-full cursor-pointer rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-tealbrand-600 file:px-4 file:py-2.5 file:text-sm file:font-extrabold file:text-white hover:file:bg-tealbrand-700"
+                  className="mt-2 block w-full cursor-pointer rounded-2xl border border-white/20 bg-white text-sm font-semibold text-slate-700 file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-tealbrand-800 file:px-4 file:py-2.5 file:text-sm file:font-extrabold file:text-white hover:file:bg-tealbrand-700"
                 />
               </div>
             </div>
@@ -908,7 +904,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
         </div>
 
         {/* Footer buttons (Save/Cancel) */}
-        <div className="border-t border-slate-200 bg-white px-5 py-4">
+        <div className="border-t border-tealbrand-800/70 bg-tealbrand-900 px-5 py-4">
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -916,7 +912,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 // Requirement: Cancel closes without changes.
                 onClose();
               }}
-              className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+              className="inline-flex h-10 items-center justify-center rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-extrabold text-white shadow-sm transition hover:bg-white/15 active:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
             >
               Cancel
             </button>
@@ -932,7 +928,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 });
                 onClose();
               }}
-              className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+              className="inline-flex h-10 items-center justify-center rounded-2xl bg-white px-5 text-sm font-extrabold text-tealbrand-900 shadow-sm transition hover:bg-white/95 active:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
             >
               Save Changes
             </button>
@@ -965,7 +961,7 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-4 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-4 sm:items-center"
       role="dialog"
       aria-modal="true"
       aria-label="Schedule Meeting"
@@ -973,19 +969,18 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
-        <header className="border-b border-slate-200 px-5 py-5">
+      {/* Requirement: compact, dark teal modal, white text, white inputs, inline date/time */}
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl border-2 border-tealbrand-900 bg-tealbrand-900 shadow-xl">
+        <header className="border-b border-tealbrand-800/70 px-5 py-4 text-white">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-base font-black text-slate-900">
-                Schedule Meeting
-              </h2>
-              <p className="mt-1 text-sm font-semibold text-slate-600">
-                Choose date/time and add a short description. This will mark the card as an alert (light amber).
+              <h2 className="text-base font-black tracking-tight">Schedule Meeting</h2>
+              <p className="mt-1 text-xs font-semibold text-white/80">
+                Pick a date/time and add a short note. Scheduling will instantly highlight the mentor card.
               </p>
               {submission ? (
-                <div className="mt-2 text-xs font-semibold text-slate-500">
-                  For: <span className="font-extrabold text-slate-700">{submission.title}</span>
+                <div className="mt-2 text-xs font-semibold text-white/80">
+                  For: <span className="font-extrabold text-white">{submission.title}</span>
                 </div>
               ) : null}
             </div>
@@ -993,9 +988,14 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+              className={cx(
+                "inline-flex h-9 items-center justify-center rounded-2xl border border-white/25 bg-white/10 px-3 text-xs font-extrabold text-white",
+                "shadow-sm transition hover:bg-white/15 active:bg-white/20",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
+              )}
             >
-              Close
+              ✕
+              <span className="sr-only">Close</span>
             </button>
           </div>
         </header>
@@ -1012,43 +1012,45 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
               onSchedule({ date: d, time: t, description: s });
             }}
           >
-            <div>
-              <label htmlFor="mDate" className="text-sm font-extrabold text-slate-900">
-                Date
-              </label>
-              <input
-                id="mDate"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="mDate" className="text-sm font-extrabold text-white">
+                  Date
+                </label>
+                <input
+                  id="mDate"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="mTime" className="text-sm font-extrabold text-white">
+                  Time
+                </label>
+                <input
+                  id="mTime"
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
+                />
+              </div>
             </div>
 
             <div>
-              <label htmlFor="mTime" className="text-sm font-extrabold text-slate-900">
-                Time
-              </label>
-              <input
-                id="mTime"
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="mDesc" className="text-sm font-extrabold text-slate-900">
+              <label htmlFor="mDesc" className="text-sm font-extrabold text-white">
                 Short Description
               </label>
               <textarea
                 id="mDesc"
                 value={desc}
                 onChange={(e) => setDesc(e.target.value)}
-                placeholder="e.g., Quick check-in on recent submission and next steps."
-                rows={4}
-                className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                placeholder="e.g., Quick check-in on the latest submission and next steps."
+                rows={3}
+                className="mt-2 w-full resize-none rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
               />
             </div>
 
@@ -1056,25 +1058,25 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
               <button
                 type="button"
                 onClick={onClose}
-                className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+                className="inline-flex h-10 items-center justify-center rounded-2xl border border-white/25 bg-white/10 px-4 text-sm font-extrabold text-white shadow-sm transition hover:bg-white/15 active:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                className="inline-flex h-10 items-center justify-center rounded-2xl bg-white px-5 text-sm font-extrabold text-tealbrand-900 shadow-sm transition hover:bg-white/95 active:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
               >
                 Schedule
               </button>
             </div>
           </form>
 
-          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-            <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
-              Visual Feedback
+          <div className="mt-5 rounded-2xl border border-amber-300/60 bg-amber-200/20 px-4 py-3">
+            <div className="text-xs font-extrabold uppercase tracking-wide text-amber-50">
+              Meeting Alert
             </div>
-            <div className="mt-1 text-sm font-semibold text-amber-900">
-              Once scheduled, the specific mentor card will change to a noticeable light amber background.
+            <div className="mt-1 text-sm font-semibold text-amber-50/90">
+              After scheduling, the matching mentor card switches to a soft amber background immediately.
             </div>
           </div>
         </div>
