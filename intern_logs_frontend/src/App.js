@@ -838,7 +838,7 @@ function SubmissionCard({
         >
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
-              Mentor Remark
+              Remarks Added Successfully
             </span>
             <span className="text-xs font-semibold text-tealbrand-700 bg-tealbrand-50 px-2 py-0.5 rounded border border-tealbrand-100">
               New
