@@ -469,15 +469,18 @@ function MentorDashboard({ submissions, setSubmissions }) {
 
   // Button at top-right inside mentor card ("+ Remark"), absolute positioned.
   function MentorRemarkButton({ submission }) {
-    const hasRemark = typeof submission.mentorRemark === "string" && submission.mentorRemark.trim();
+    const hasRemark =
+      typeof submission.mentorRemark === "string" &&
+      submission.mentorRemark.trim();
 
     return (
       <button
         type="button"
         className={cx(
-          "remark-floating-btn absolute right-3 top-3 z-20 transition-opacity duration-200 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+          // Positioned top-right with a bit more inset/space than before
+          "remark-floating-btn absolute right-4 top-4 z-20 transition-opacity duration-200 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
           hasRemark && "opacity-100", // Always visible if remark exists, else show on hover/focus
-          "inline-flex items-center gap-1 rounded-xl border border-tealbrand-900 px-2 py-1 text-xs font-black bg-tealbrand-800 text-white shadow-md hover:bg-tealbrand-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-400 focus-visible:ring-offset-2"
+          "inline-flex items-center gap-1.5 rounded-xl border border-tealbrand-900 px-2.5 py-1.5 text-xs font-black bg-tealbrand-800 text-white shadow-md hover:bg-tealbrand-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-400 focus-visible:ring-offset-2"
         )}
         onClick={() => openRemarkModal(submission.id, submission.mentorRemark)}
         aria-label={hasRemark ? "Edit Remark" : "Add Remark"}
@@ -501,6 +504,7 @@ function MentorDashboard({ submissions, setSubmissions }) {
             Review intern submissions as cards. Actions live inside each work card.
           </p>
         </div>
+
         {submissions.length === 0 ? (
           <EmptyState
             title="No intern submissions yet"
@@ -509,25 +513,21 @@ function MentorDashboard({ submissions, setSubmissions }) {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {submissions.map((s) => (
-              <div key={s.id} className="flex flex-col gap-0 relative">
+              <div key={s.id} className="relative">
                 <SubmissionCard
                   submission={s}
                   variant="mentor"
                   onReviewedSuccessfully={() => markReviewed(s.id)}
                   onScheduleMeeting={() => setMeetingTargetId(s.id)}
                   renderExtraActions={null}
-                  MentorRemarkButtonSlot={
-                    <MentorRemarkButton submission={s} />
-                  }
+                  MentorRemarkButtonSlot={<MentorRemarkButton submission={s} />}
                 />
-                {/* Always display mentor remark at the very bottom if it exists (in both views) */}
-                {typeof s.mentorRemark === "string" && s.mentorRemark.trim() ? (
-                  <MentorRemarkDisplay remark={s.mentorRemark} />
-                ) : null}
+                {/* External Mentor Remark box removed: in-card remark is the only display location */}
               </div>
             ))}
           </div>
         )}
+
         <MeetingModal
           open={Boolean(meetingTarget)}
           submission={meetingTarget}
@@ -539,6 +539,7 @@ function MentorDashboard({ submissions, setSubmissions }) {
           }}
         />
       </main>
+
       <MentorRemarkModal
         open={Boolean(remarkModal.openFor)}
         value={modalDraft}
@@ -686,51 +687,60 @@ function SubmissionCard({
 
   // File rows border
   const fileRowBorder =
-    hasMeeting ? "border-amber-200" : isReviewed ? "border-emerald-200" : "border-tealbrand-200";
-
-  // Intern view: show Mentor Remark at card bottom if exists, styled distinctly
-  const showMentorNote =
-    variant === "intern" &&
-    typeof submission.mentorRemark === "string" &&
-    !!submission.mentorRemark.trim();
+    hasMeeting
+      ? "border-amber-200"
+      : isReviewed
+        ? "border-emerald-200"
+        : "border-tealbrand-200";
 
   // Always show mentor remark at the very bottom of the card (when it exists),
   // for both mentor and intern cards per spec.
-  const mentorRemarkBottom = typeof submission.mentorRemark === "string" && submission.mentorRemark.trim();
+  const mentorRemarkBottom =
+    typeof submission.mentorRemark === "string" && submission.mentorRemark.trim();
 
   return (
     <article
       className={cx(
         "group relative rounded-3xl border-2 shadow-sm transition",
         cardTone,
-        "p-5"
+        // Slightly more padding + reserved space so the top-right “+ Remark” doesn’t collide
+        "p-6 pt-6"
       )}
       tabIndex={-1}
     >
       {/* Mentor view: absolute Remark button at top-right */}
       {variant === "mentor" ? MentorRemarkButtonSlot : null}
 
-      <div className="flex items-start justify-between gap-4">
+      {/* Header spacing refined to match requested layout (name/date/files areas) */}
+      <div className="flex items-start justify-between gap-4 pr-14">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-black text-slate-900">
+          <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-600">
+            Work Name
+          </div>
+          <h3 className="mt-1 truncate text-sm font-black text-slate-900">
             {submission.title}
           </h3>
-          <div className="mt-1 text-xs font-semibold text-slate-600">
+
+          <div className="mt-3 text-[11px] font-extrabold uppercase tracking-wide text-slate-600">
+            Submitted
+          </div>
+          <div className="mt-1 text-xs font-semibold text-slate-700">
             {submission.timestampLabel}
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           {statusBadge}
-          {/* For old button: {variant === "mentor" && isReviewed && renderExtraActions} */}
           {hasMeeting ? <StatusBadge kind="alert" label="Meeting Scheduled" /> : null}
         </div>
       </div>
-      <p className="mt-3 text-sm font-semibold text-slate-800">
+
+      <p className="mt-4 text-sm font-semibold text-slate-800">
         {submission.description}
       </p>
-      <div className="mt-4 space-y-2">
-        <div className="text-xs font-extrabold uppercase tracking-wide text-slate-600">
+
+      <div className="mt-5 space-y-2">
+        <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-600">
           Files
         </div>
         {submission.files && submission.files.length ? (
@@ -783,8 +793,9 @@ function SubmissionCard({
           </div>
         )}
       </div>
+
       {submission.meeting ? (
-        <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
+        <div className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
           <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
             Scheduled Meeting
           </div>
@@ -796,8 +807,9 @@ function SubmissionCard({
           </div>
         </div>
       ) : null}
-      {variant === "intern" ? (<>
-        <div className="mt-5 flex items-center justify-end gap-2">
+
+      {variant === "intern" ? (
+        <div className="mt-6 flex items-center justify-end gap-2">
           <IconButton label="Edit" onClick={onEdit}>
             <EditIcon />
           </IconButton>
@@ -805,9 +817,9 @@ function SubmissionCard({
             <TrashIcon />
           </IconButton>
         </div>
-      </>) : (
+      ) : (
         // Mentor actions only. Render each action. No inline remark controls here.
-        <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <ActionButton kind="success" onClick={onReviewedSuccessfully}>
             Reviewed Successfully
           </ActionButton>
@@ -816,11 +828,14 @@ function SubmissionCard({
           </ActionButton>
         </div>
       )}
-      {/* Always display mentor remark at card bottom if it exists */}
+
+      {/* Mentor remark stays in-card and is the only display location */}
       {mentorRemarkBottom ? (
-        <div className={cx(
-          "mt-6 rounded-2xl border-2 border-tealbrand-300 bg-white/90 px-4 py-3"
-        )}>
+        <div
+          className={cx(
+            "mt-6 rounded-2xl border-2 border-tealbrand-300 bg-white/90 px-4 py-3"
+          )}
+        >
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
               Mentor Remark
