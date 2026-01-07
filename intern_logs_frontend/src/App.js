@@ -420,10 +420,10 @@ function MentorDashboard({ submissions, setSubmissions }) {
   // Modal state for scheduling meeting
   const [meetingTargetId, setMeetingTargetId] = useState(null);
 
-  // Modal state for adding a remark
-  const [remarkModal, setRemarkModal] = useState({ openFor: null }); // { openFor: submissionId|null }
+  // Remark modal state (openFor: submissionId|null)
+  const [remarkModal, setRemarkModal] = useState({ openFor: null });
 
-  // Draft for remark modal textarea (transient)
+  // Draft for modal textarea
   const [modalDraft, setModalDraft] = useState("");
 
   const meetingTarget = useMemo(() => {
@@ -467,6 +467,28 @@ function MentorDashboard({ submissions, setSubmissions }) {
     closeRemarkModal();
   }
 
+  // Button next to "Reviewed Successfully", inline inside SubmissionCard (Mentor view)
+  function MentorRemarkButton({ submission }) {
+    const hasRemark = typeof submission.mentorRemark === "string" && submission.mentorRemark.trim();
+    return (
+      <button
+        type="button"
+        className={cx(
+          "inline-flex items-center justify-center gap-1 rounded-xl border border-tealbrand-900 px-2 py-1 text-xs font-black transition ml-1",
+          "bg-tealbrand-800 text-white shadow-sm hover:bg-tealbrand-900",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-400 focus-visible:ring-offset-2"
+        )}
+        onClick={() => openRemarkModal(submission.id, submission.mentorRemark)}
+        aria-label={hasRemark ? "Edit Remark" : "Add Remark"}
+        style={{ minWidth: "2.2rem", minHeight: "1.8rem" }}
+      >
+        <span className="mr-0.5 align-middle text-lg font-bold leading-none">+</span>
+        Remark
+      </button>
+    );
+  }
+
+  // Render each submission as card (mentor - with actions)
   return (
     <>
       <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
@@ -486,30 +508,20 @@ function MentorDashboard({ submissions, setSubmissions }) {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {submissions.map((s) => (
-              <div key={s.id} className="flex flex-col gap-2">
+              <div key={s.id} className="flex flex-col gap-0">
                 <SubmissionCard
                   submission={s}
                   variant="mentor"
                   onReviewedSuccessfully={() => markReviewed(s.id)}
                   onScheduleMeeting={() => setMeetingTargetId(s.id)}
+                  renderExtraActions={(
+                    <MentorRemarkButton submission={s} />
+                  )}
                 />
-                {/* Mentor Remark Feature Update: Only show remark box if a remark exists */}
+                {/* Always display mentor remark at the bottom if it exists (in both views) */}
                 {typeof s.mentorRemark === "string" && s.mentorRemark.trim() ? (
                   <MentorRemarkDisplay remark={s.mentorRemark} />
                 ) : null}
-                <button
-                  type="button"
-                  className={cx(
-                    "w-full mt-1 inline-flex justify-center items-center rounded-2xl px-3 py-2 text-xs font-extrabold transition border",
-                    "border-tealbrand-800 bg-tealbrand-800 text-white shadow-sm hover:bg-tealbrand-900",
-                    "focus-visible:ring-2 focus-visible:ring-tealbrand-400 focus-visible:ring-offset-2"
-                  )}
-                  onClick={() => openRemarkModal(s.id, s.mentorRemark)}
-                  aria-label="Add Remark"
-                >
-                  {typeof s.mentorRemark === "string" && s.mentorRemark.trim()
-                    ? "Edit Remark" : "Add Remark"}
-                </button>
               </div>
             ))}
           </div>
@@ -540,7 +552,7 @@ function MentorDashboard({ submissions, setSubmissions }) {
 }
 
 function MentorRemarkModal({ open, value, onChange, onClose, onSend, canSend }) {
-  // Handles the thin, dark-teal compact modal for remarks
+  // Smaller, compact, dark-teal modal floating over; Send and Cancel as icon-buttons
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -561,48 +573,56 @@ function MentorRemarkModal({ open, value, onChange, onClose, onSend, canSend }) 
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-sm overflow-hidden rounded-2xl border-2 border-tealbrand-900 bg-tealbrand-900 shadow-xl">
-        <header className="border-b border-tealbrand-800/70 px-5 py-3 text-white">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-black">Mentor Remark</span>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white/80 text-xs font-extrabold shadow-sm transition hover:bg-white/15 active:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
-            >✕</button>
-          </div>
-          <div className="mt-1 text-xs text-white/80">
-            Remark is visible to both mentor & intern for this card.
-          </div>
+      <div className="w-full max-w-xs overflow-hidden rounded-2xl border-2 border-tealbrand-900 bg-tealbrand-900 shadow-xl">
+        <header className="border-b border-tealbrand-800/70 px-4 py-2.5 text-white flex items-center justify-between">
+          <span className="text-xs font-black tracking-wide">Mentor Remark</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cancel"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white/80 text-xs font-extrabold shadow-sm transition hover:bg-white/20 active:bg-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
+          >✕</button>
         </header>
-        <div className="px-5 py-4">
+        <div className="px-4 py-3">
           <textarea
             ref={inputRef}
             value={value}
             onChange={e => onChange(e.target.value)}
-            rows={4}
-            placeholder="Write mentor feedback or a short note (will appear on both cards)..."
-            className="w-full resize-none rounded-xl border border-white/20 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-300 focus:ring-2 focus:ring-white/40"
-            style={{ minHeight: "44px" }}
+            rows={3}
+            placeholder="Add mentor feedback…"
+            className="w-full resize-none rounded-xl border border-white/20 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-300 focus:ring-2 focus:ring-white/40"
+            style={{ minHeight: "40px" }}
+            maxLength={180}
           />
-          <div className="flex justify-end gap-2 mt-4">
+          <div className="flex justify-end gap-2 mt-2">
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-9 items-center justify-center rounded-2xl border border-white/15 bg-white/10 px-4 text-sm font-extrabold text-white shadow-sm transition hover:bg-white/15 active:bg-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
-            >Cancel</button>
+              aria-label="Cancel"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-white shadow-sm hover:bg-white/20 active:bg-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
+              title="Cancel"
+            >
+              <span className="text-base font-black">✗</span>
+            </button>
             <button
               type="button"
               disabled={!canSend}
               onClick={onSend}
+              aria-label="Send"
               className={cx(
-                "inline-flex h-9 items-center justify-center rounded-2xl px-5 text-sm font-extrabold shadow-sm transition",
+                "inline-flex h-8 w-8 items-center justify-center rounded-xl border px-0 shadow-sm transition",
                 canSend
-                  ? "bg-white text-tealbrand-900 hover:bg-white/90 active:bg-white/80"
-                  : "bg-slate-300 text-white cursor-not-allowed"
+                  ? "bg-white border-white/20 text-tealbrand-900 hover:bg-white/90 active:bg-white/80"
+                  : "bg-slate-300 border-slate-300 text-white cursor-not-allowed"
               )}
-            >Send</button>
+              title="Send"
+            >
+              <span className="text-base font-black leading-none">➤</span>
+            </button>
+          </div>
+          <div className="mt-1 flex justify-between text-[10px] text-white/60">
+            <span>Visible to both mentor & intern</span>
+            <span>{(value?.length ?? 0)}/180</span>
           </div>
         </div>
       </div>
@@ -649,7 +669,8 @@ function SubmissionCard({
   onEdit,
   onDelete,
   onReviewedSuccessfully,
-  onScheduleMeeting
+  onScheduleMeeting,
+  renderExtraActions
 }) {
   const isReviewed = submission.status === "reviewed";
   const hasMeeting = Boolean(submission.meeting);
@@ -669,6 +690,10 @@ function SubmissionCard({
     variant === "intern" &&
     typeof submission.mentorRemark === "string" &&
     !!submission.mentorRemark.trim();
+
+  // Always show mentor remark at the very bottom of the card (when it exists),
+  // for both mentor and intern cards per spec.
+  const mentorRemarkBottom = typeof submission.mentorRemark === "string" && submission.mentorRemark.trim();
 
   return (
     <article
@@ -690,6 +715,8 @@ function SubmissionCard({
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           {statusBadge}
+          {/* Place +Remark button next to "Reviewed Successfully" in mentor view */}
+          {variant === "mentor" && isReviewed && renderExtraActions}
           {hasMeeting ? <StatusBadge kind="alert" label="Meeting Scheduled" /> : null}
         </div>
       </div>
@@ -772,26 +799,8 @@ function SubmissionCard({
             <TrashIcon />
           </IconButton>
         </div>
-        {/* Show mentor remark at card bottom when available */}
-        {showMentorNote ? (
-          <div className="mt-6">
-            <div className="rounded-2xl border-2 border-tealbrand-300 bg-white/90 px-4 py-3">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
-                  Mentor Remark
-                </span>
-                <span className="text-xs font-semibold text-tealbrand-700 bg-tealbrand-50 px-2 py-0.5 rounded border border-tealbrand-100">
-                  New
-                </span>
-              </div>
-              <div className="text-sm font-semibold text-tealbrand-900 whitespace-pre-line">
-                {submission.mentorRemark}
-              </div>
-            </div>
-          </div>
-        ) : null}
       </>) : (
-        // Mentor actions only. Remark appears separately in dashboard grid above Add/Edit button.
+        // Mentor actions only. Render each action and renderExtraActions inline, only for non-reviewed cards.
         <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <ActionButton kind="success" onClick={onReviewedSuccessfully}>
             Reviewed Successfully
@@ -799,8 +808,28 @@ function SubmissionCard({
           <ActionButton kind="schedule" onClick={onScheduleMeeting}>
             Schedule Meeting
           </ActionButton>
+          {/* When not reviewed, show +Remark button underneath for quick add */}
+          {variant === "mentor" && !isReviewed && renderExtraActions}
         </div>
       )}
+      {/* Always display mentor remark at card bottom if it exists */}
+      {mentorRemarkBottom ? (
+        <div className={cx(
+          "mt-6 rounded-2xl border-2 border-tealbrand-300 bg-white/90 px-4 py-3"
+        )}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
+              Mentor Remark
+            </span>
+            <span className="text-xs font-semibold text-tealbrand-700 bg-tealbrand-50 px-2 py-0.5 rounded border border-tealbrand-100">
+              New
+            </span>
+          </div>
+          <div className="text-sm font-semibold text-tealbrand-900 whitespace-pre-line">
+            {submission.mentorRemark}
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }
