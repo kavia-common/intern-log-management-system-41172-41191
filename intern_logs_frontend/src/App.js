@@ -437,6 +437,7 @@ function InternDashboard({ submissions, setSubmissions }) {
 
 function MentorDashboard({ submissions, setSubmissions }) {
   const [meetingTargetId, setMeetingTargetId] = useState(null);
+  const [remarkDraft, setRemarkDraft] = useState({}); // { [id]: string }
 
   const meetingTarget = useMemo(() => {
     if (!meetingTargetId) return null;
@@ -459,6 +460,21 @@ function MentorDashboard({ submissions, setSubmissions }) {
     );
   }
 
+  // PUBLIC_INTERFACE
+  function saveMentorRemark(id) {
+    /** Public interface: save remark to submission, and clear draft. */
+    const note = (remarkDraft[id] || "").trim();
+    if (!note) return;
+    setSubmissions((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? { ...s, mentorRemark: note }
+          : s
+      )
+    );
+    setRemarkDraft((prev) => ({ ...prev, [id]: "" }));
+  }
+
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
       <div className="mb-6">
@@ -478,13 +494,56 @@ function MentorDashboard({ submissions, setSubmissions }) {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {submissions.map((s) => (
-            <SubmissionCard
-              key={s.id}
-              submission={s}
-              variant="mentor"
-              onReviewedSuccessfully={() => markReviewed(s.id)}
-              onScheduleMeeting={() => setMeetingTargetId(s.id)}
-            />
+            <div key={s.id} className="flex flex-col gap-2">
+              <SubmissionCard
+                submission={s}
+                variant="mentor"
+                onReviewedSuccessfully={() => markReviewed(s.id)}
+                onScheduleMeeting={() => setMeetingTargetId(s.id)}
+              />
+              {/* Mentor Remark Feature: Remark textarea + Save */}
+              <div className="rounded-2xl border border-tealbrand-300 bg-white/80 px-4 py-3 mt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase text-tealbrand-800">Mentor Remark</span>
+                  {s.mentorRemark && (
+                    <span className="ml-2 text-xs font-semibold text-emerald-600 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-100">
+                      Saved
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  value={remarkDraft[s.id] !== undefined ? remarkDraft[s.id] : (s.mentorRemark || "")}
+                  onChange={e =>
+                    setRemarkDraft(rd => ({
+                      ...rd,
+                      [s.id]: e.target.value
+                    }))
+                  }
+                  placeholder="Write optional mentor feedback or notes for this submission…"
+                  rows={2}
+                  className="mt-2 w-full resize-none rounded-xl border border-tealbrand-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
+                  style={{ minHeight: "40px", fontSize: "0.95rem" }}
+                />
+                <div className="flex items-center justify-end gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRemarkDraft(rd => ({ ...rd, [s.id]: "" }))}
+                    className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+                  >Clear</button>
+                  <button
+                    type="button"
+                    onClick={() => saveMentorRemark(s.id)}
+                    disabled={!(remarkDraft[s.id] && remarkDraft[s.id].trim())}
+                    className={cx(
+                      "inline-flex h-8 items-center justify-center rounded-lg px-4 text-xs font-extrabold shadow-sm transition",
+                      (remarkDraft[s.id] && remarkDraft[s.id].trim())
+                        ? "bg-tealbrand-600 text-white hover:bg-tealbrand-700 active:bg-tealbrand-800"
+                        : "bg-slate-300 text-white cursor-not-allowed"
+                    )}
+                  >Save</button>
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -539,6 +598,11 @@ function SubmissionCard({
   const fileRowBorder =
     hasMeeting ? "border-amber-200" : isReviewed ? "border-emerald-200" : "border-tealbrand-200";
 
+  // Intern view: show Mentor Note if exists
+  const showMentorNote =
+    variant === "intern" &&
+    !!(submission.mentorRemark && submission.mentorRemark.trim());
+
   return (
     <article
       className={cx(
@@ -566,6 +630,24 @@ function SubmissionCard({
       <p className="mt-3 text-sm font-semibold text-slate-800">
         {submission.description}
       </p>
+
+      {showMentorNote ? (
+        <div className="mt-4 rounded-2xl border border-tealbrand-400 bg-tealbrand-50 px-4 py-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
+              Mentor Note
+            </span>
+            <span
+              className="text-xs font-semibold text-tealbrand-700 bg-white/80 px-2 py-0.5 rounded"
+            >
+              New
+            </span>
+          </div>
+          <div className="text-sm font-semibold text-tealbrand-900 whitespace-pre-line">
+            {submission.mentorRemark}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-2">
         <div className="text-xs font-extrabold uppercase tracking-wide text-slate-600">
