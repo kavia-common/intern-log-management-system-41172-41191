@@ -3,21 +3,18 @@ import "./App.css";
 
 /**
  * T3Log UI (frontend-only) — Spec implementation
- *
- * Updates in this task:
- * - Remove "Want to Connect" action and any related UI/status.
- * - Ensure mentor status updates reflect in intern view instantly (shared submissions state).
- * - Apply dynamic color rules consistently across intern & mentor cards:
- *    default: pale teal bg + dark teal border
- *    reviewed: light green bg + dark green border
- *    scheduled meeting: light orange bg + dark orange border
- * - Keep modals compact and dark-teal themed (already in place; minor alignment with new rules).
- *
- * Notes:
- * - All actions are UI-only and stored in React state (no backend).
+ * 
+ * Mentor Remark Modal Update:
+ * - Mentor cards have an "Add Remark" button.
+ * - Clicking opens a dark-teal compact modal with textarea and Send.
+ * - On send, the remark appears directly below action buttons on the mentor card.
+ * - Shows at the bottom of the corresponding intern history card (labeled). 
+ * - If no remark exists, nothing visible on either card.
+ * - Instant shared-state sync (no backend).
+ * - Preserves existing appearance/colors.
  */
 
-// Small utility for className concatenation
+// Utility for className concatenation
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
@@ -26,7 +23,7 @@ function cx(...classes) {
 function App() {
   /** Auth/role */
   const [isAuthed, setIsAuthed] = useState(false);
-  const [role, setRole] = useState(null); // "intern" | "mentor" | null
+  const [role, setRole] = useState(null);
 
   /**
    * Shared in-memory submissions store
@@ -36,14 +33,12 @@ function App() {
 
   // PUBLIC_INTERFACE
   function handleLogout() {
-    /** Public interface: logs user out and returns to login UI. */
     setIsAuthed(false);
     setRole(null);
   }
 
   // PUBLIC_INTERFACE
   function handleLogin(nextRole) {
-    /** Public interface: performs UI-only login and selects role. */
     setRole(nextRole);
     setIsAuthed(true);
   }
@@ -75,7 +70,7 @@ function App() {
 function LoginScreen({ onSelectRole }) {
   return (
     <main className="relative min-h-screen overflow-hidden">
-      {/* Background: soft, modern teal gradient */}
+      {/* Soft teal gradient */}
       <div className="absolute inset-0 bg-gradient-to-br from-tealbrand-600 via-tealbrand-500 to-tealbrand-800" />
       <div className="absolute inset-0 opacity-70 [background:radial-gradient(900px_600px_at_20%_10%,rgba(255,255,255,0.32),transparent_60%),radial-gradient(800px_500px_at_80%_30%,rgba(255,255,255,0.18),transparent_55%)]" />
 
@@ -93,7 +88,6 @@ function LoginScreen({ onSelectRole }) {
               Precision Tracking. Seamless Mentorship. Elevated Growth.
             </p>
           </div>
-
           <div className="mt-10 grid gap-5 md:grid-cols-2">
             <RoleCard
               title="I am an Intern"
@@ -222,7 +216,6 @@ function InternDashboard({ submissions, setSubmissions }) {
 
   // PUBLIC_INTERFACE
   function handleSubmit(e) {
-    /** Public interface: add a submission and instantly reflect in history. */
     e.preventDefault();
 
     const trimmedTitle = title.trim();
@@ -254,9 +247,9 @@ function InternDashboard({ submissions, setSubmissions }) {
         timestampIso,
         timestampLabel,
         files,
-        // mentor-controlled fields (shared state)
-        status: "none", // "none" | "reviewed"
-        meeting: null // { date, time, description } | null
+        status: "none",
+        meeting: null,
+        mentorRemark: undefined
       },
       ...prev
     ]);
@@ -268,26 +261,22 @@ function InternDashboard({ submissions, setSubmissions }) {
 
   // PUBLIC_INTERFACE
   function deleteSubmission(id) {
-    /** Public interface: delete submission from history. */
     setSubmissions((prev) => prev.filter((s) => s.id !== id));
     if (editingSubmissionId === id) setEditingSubmissionId(null);
   }
 
   // PUBLIC_INTERFACE
   function openEditModal(submission) {
-    /** Public interface: open modal and edit a submission in-place (UI-only). */
     setEditingSubmissionId(submission.id);
   }
 
   // PUBLIC_INTERFACE
   function closeEditModal() {
-    /** Public interface: close the edit modal. */
     setEditingSubmissionId(null);
   }
 
   // PUBLIC_INTERFACE
   function updateSubmissionImmediate(id, patch) {
-    /** Public interface: apply an immediate patch to a submission in state. */
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
     );
@@ -324,7 +313,6 @@ function InternDashboard({ submissions, setSubmissions }) {
                         className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
                       />
                     </div>
-
                     <div>
                       <label htmlFor="workDesc" className="text-sm font-extrabold text-slate-900">
                         Description
@@ -338,7 +326,6 @@ function InternDashboard({ submissions, setSubmissions }) {
                         className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
                       />
                     </div>
-
                     <div>
                       <label htmlFor="workFile" className="text-sm font-extrabold text-slate-900">
                         File Upload
@@ -354,14 +341,12 @@ function InternDashboard({ submissions, setSubmissions }) {
                         UI-only upload. File names are stored in state so download icons can be shown.
                       </p>
                     </div>
-
                     <div className="rounded-2xl border border-tealbrand-100 bg-tealbrand-50 px-4 py-3">
                       <div className="text-sm font-black text-tealbrand-900">Auto-timestamp</div>
                       <div className="mt-1 text-sm font-semibold text-tealbrand-800">
                         Date and time will be captured automatically when you submit.
                       </div>
                     </div>
-
                     <div className="flex items-center justify-end gap-2">
                       <button
                         type="reset"
@@ -374,7 +359,6 @@ function InternDashboard({ submissions, setSubmissions }) {
                       >
                         Clear
                       </button>
-
                       <button
                         type="submit"
                         className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
@@ -386,7 +370,6 @@ function InternDashboard({ submissions, setSubmissions }) {
                 </div>
               </section>
             </div>
-
             <div className="lg:col-span-3">
               <section className="rounded-3xl border-2 border-tealbrand-800 bg-tealbrand-50 shadow-sm">
                 <header className="border-b border-tealbrand-200 px-5 py-5">
@@ -395,7 +378,6 @@ function InternDashboard({ submissions, setSubmissions }) {
                     Submissions appear instantly below with timestamps, file downloads, and edit/delete controls.
                   </p>
                 </header>
-
                 <div className="px-5 py-5">
                   {!hasAny ? (
                     <EmptyState
@@ -421,7 +403,6 @@ function InternDashboard({ submissions, setSubmissions }) {
           </div>
         </main>
       </div>
-
       <EditSubmissionModal
         open={isEditModalOpen}
         submission={editingSubmission}
@@ -436,8 +417,14 @@ function InternDashboard({ submissions, setSubmissions }) {
 }
 
 function MentorDashboard({ submissions, setSubmissions }) {
+  // Modal state for scheduling meeting
   const [meetingTargetId, setMeetingTargetId] = useState(null);
-  const [remarkDraft, setRemarkDraft] = useState({}); // { [id]: string }
+
+  // Modal state for adding a remark
+  const [remarkModal, setRemarkModal] = useState({ openFor: null }); // { openFor: submissionId|null }
+
+  // Draft for remark modal textarea (transient)
+  const [modalDraft, setModalDraft] = useState("");
 
   const meetingTarget = useMemo(() => {
     if (!meetingTargetId) return null;
@@ -446,7 +433,6 @@ function MentorDashboard({ submissions, setSubmissions }) {
 
   // PUBLIC_INTERFACE
   function markReviewed(id) {
-    /** Public interface: marks a submission as Reviewed Successfully. */
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: "reviewed" } : s))
     );
@@ -454,111 +440,190 @@ function MentorDashboard({ submissions, setSubmissions }) {
 
   // PUBLIC_INTERFACE
   function scheduleMeeting(id, meeting) {
-    /** Public interface: sets meeting for a submission; triggers scheduled meeting color in that card. */
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, meeting } : s))
     );
   }
 
   // PUBLIC_INTERFACE
-  function saveMentorRemark(id) {
-    /** Public interface: save remark to submission, and clear draft. */
-    const note = (remarkDraft[id] || "").trim();
-    if (!note) return;
+  function openRemarkModal(id, currentRemark) {
+    setRemarkModal({ openFor: id });
+    setModalDraft(typeof currentRemark === "string" ? currentRemark : "");
+  }
+
+  // PUBLIC_INTERFACE
+  function closeRemarkModal() {
+    setRemarkModal({ openFor: null });
+    setModalDraft("");
+  }
+
+  // PUBLIC_INTERFACE
+  function commitMentorRemark(id) {
+    const note = (modalDraft || "").trim();
+    if (!id || !note) return;
     setSubmissions((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? { ...s, mentorRemark: note }
-          : s
-      )
+      prev.map((s) => (s.id === id ? { ...s, mentorRemark: note } : s))
     );
-    setRemarkDraft((prev) => ({ ...prev, [id]: "" }));
+    closeRemarkModal();
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-black tracking-tight text-slate-900">
-          Mentor Dashboard
-        </h1>
-        <p className="mt-1 text-sm font-semibold text-slate-600">
-          Review intern submissions as cards. Actions live inside each work card.
-        </p>
-      </div>
-
-      {submissions.length === 0 ? (
-        <EmptyState
-          title="No intern submissions yet"
-          description="Once an intern submits work, cards will appear here in a grid for review."
-        />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {submissions.map((s) => (
-            <div key={s.id} className="flex flex-col gap-2">
-              <SubmissionCard
-                submission={s}
-                variant="mentor"
-                onReviewedSuccessfully={() => markReviewed(s.id)}
-                onScheduleMeeting={() => setMeetingTargetId(s.id)}
-              />
-              {/* Mentor Remark Feature: Remark textarea + Save */}
-              <div className="rounded-2xl border border-tealbrand-300 bg-white/80 px-4 py-3 mt-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black uppercase text-tealbrand-800">Mentor Remark</span>
-                  {s.mentorRemark && (
-                    <span className="ml-2 text-xs font-semibold text-emerald-600 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-100">
-                      Saved
-                    </span>
-                  )}
-                </div>
-                <textarea
-                  value={remarkDraft[s.id] !== undefined ? remarkDraft[s.id] : (s.mentorRemark || "")}
-                  onChange={e =>
-                    setRemarkDraft(rd => ({
-                      ...rd,
-                      [s.id]: e.target.value
-                    }))
-                  }
-                  placeholder="Write optional mentor feedback or notes for this submission…"
-                  rows={2}
-                  className="mt-2 w-full resize-none rounded-xl border border-tealbrand-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-500 focus:ring-2 focus:ring-tealbrand-200"
-                  style={{ minHeight: "40px", fontSize: "0.95rem" }}
-                />
-                <div className="flex items-center justify-end gap-2 mt-2">
-                  <button
-                    type="button"
-                    onClick={() => setRemarkDraft(rd => ({ ...rd, [s.id]: "" }))}
-                    className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-extrabold text-slate-800 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
-                  >Clear</button>
-                  <button
-                    type="button"
-                    onClick={() => saveMentorRemark(s.id)}
-                    disabled={!(remarkDraft[s.id] && remarkDraft[s.id].trim())}
-                    className={cx(
-                      "inline-flex h-8 items-center justify-center rounded-lg px-4 text-xs font-extrabold shadow-sm transition",
-                      (remarkDraft[s.id] && remarkDraft[s.id].trim())
-                        ? "bg-tealbrand-600 text-white hover:bg-tealbrand-700 active:bg-tealbrand-800"
-                        : "bg-slate-300 text-white cursor-not-allowed"
-                    )}
-                  >Save</button>
-                </div>
-              </div>
-            </div>
-          ))}
+    <>
+      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+        <div className="mb-6">
+          <h1 className="text-xl font-black tracking-tight text-slate-900">
+            Mentor Dashboard
+          </h1>
+          <p className="mt-1 text-sm font-semibold text-slate-600">
+            Review intern submissions as cards. Actions live inside each work card.
+          </p>
         </div>
-      )}
-
-      <MeetingModal
-        open={Boolean(meetingTarget)}
-        submission={meetingTarget}
-        onClose={() => setMeetingTargetId(null)}
-        onSchedule={(meeting) => {
-          if (!meetingTarget) return;
-          scheduleMeeting(meetingTarget.id, meeting);
-          setMeetingTargetId(null);
+        {submissions.length === 0 ? (
+          <EmptyState
+            title="No intern submissions yet"
+            description="Once an intern submits work, cards will appear here in a grid for review."
+          />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {submissions.map((s) => (
+              <div key={s.id} className="flex flex-col gap-2">
+                <SubmissionCard
+                  submission={s}
+                  variant="mentor"
+                  onReviewedSuccessfully={() => markReviewed(s.id)}
+                  onScheduleMeeting={() => setMeetingTargetId(s.id)}
+                />
+                {/* Mentor Remark Feature Update: Only show remark box if a remark exists */}
+                {typeof s.mentorRemark === "string" && s.mentorRemark.trim() ? (
+                  <MentorRemarkDisplay remark={s.mentorRemark} />
+                ) : null}
+                <button
+                  type="button"
+                  className={cx(
+                    "w-full mt-1 inline-flex justify-center items-center rounded-2xl px-3 py-2 text-xs font-extrabold transition border",
+                    "border-tealbrand-800 bg-tealbrand-800 text-white shadow-sm hover:bg-tealbrand-900",
+                    "focus-visible:ring-2 focus-visible:ring-tealbrand-400 focus-visible:ring-offset-2"
+                  )}
+                  onClick={() => openRemarkModal(s.id, s.mentorRemark)}
+                  aria-label="Add Remark"
+                >
+                  {typeof s.mentorRemark === "string" && s.mentorRemark.trim()
+                    ? "Edit Remark" : "Add Remark"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <MeetingModal
+          open={Boolean(meetingTarget)}
+          submission={meetingTarget}
+          onClose={() => setMeetingTargetId(null)}
+          onSchedule={(meeting) => {
+            if (!meetingTarget) return;
+            scheduleMeeting(meetingTarget.id, meeting);
+            setMeetingTargetId(null);
+          }}
+        />
+      </main>
+      <MentorRemarkModal
+        open={Boolean(remarkModal.openFor)}
+        value={modalDraft}
+        onChange={setModalDraft}
+        onClose={closeRemarkModal}
+        onSend={() => {
+          commitMentorRemark(remarkModal.openFor);
         }}
+        canSend={modalDraft.trim().length > 0}
       />
-    </main>
+    </>
+  );
+}
+
+function MentorRemarkModal({ open, value, onChange, onClose, onSend, canSend }) {
+  // Handles the thin, dark-teal compact modal for remarks
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (open && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Mentor Remark"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-sm overflow-hidden rounded-2xl border-2 border-tealbrand-900 bg-tealbrand-900 shadow-xl">
+        <header className="border-b border-tealbrand-800/70 px-5 py-3 text-white">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-black">Mentor Remark</span>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white/80 text-xs font-extrabold shadow-sm transition hover:bg-white/15 active:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
+            >✕</button>
+          </div>
+          <div className="mt-1 text-xs text-white/80">
+            Remark is visible to both mentor & intern for this card.
+          </div>
+        </header>
+        <div className="px-5 py-4">
+          <textarea
+            ref={inputRef}
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            rows={4}
+            placeholder="Write mentor feedback or a short note (will appear on both cards)..."
+            className="w-full resize-none rounded-xl border border-white/20 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-300 focus:ring-2 focus:ring-white/40"
+            style={{ minHeight: "44px" }}
+          />
+          <div className="flex justify-end gap-2 mt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-9 items-center justify-center rounded-2xl border border-white/15 bg-white/10 px-4 text-sm font-extrabold text-white shadow-sm transition hover:bg-white/15 active:bg-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
+            >Cancel</button>
+            <button
+              type="button"
+              disabled={!canSend}
+              onClick={onSend}
+              className={cx(
+                "inline-flex h-9 items-center justify-center rounded-2xl px-5 text-sm font-extrabold shadow-sm transition",
+                canSend
+                  ? "bg-white text-tealbrand-900 hover:bg-white/90 active:bg-white/80"
+                  : "bg-slate-300 text-white cursor-not-allowed"
+              )}
+            >Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MentorRemarkDisplay({ remark }) {
+  // Visual styling below mentor actions (compact, distinct)
+  if (typeof remark !== "string" || !remark.trim()) return null;
+  return (
+    <div className="mt-2 rounded-2xl border border-tealbrand-400 bg-tealbrand-50 px-4 py-3">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
+          Mentor Remark
+        </span>
+      </div>
+      <div className="text-sm font-semibold text-tealbrand-900 whitespace-pre-line">
+        {remark}
+      </div>
+    </div>
   );
 }
 
@@ -577,6 +642,7 @@ function getCardToneClasses(submission) {
   return "border-tealbrand-800 bg-tealbrand-50";
 }
 
+// Supports intern and mentor view variant
 function SubmissionCard({
   submission,
   variant,
@@ -594,14 +660,15 @@ function SubmissionCard({
 
   const cardTone = getCardToneClasses(submission);
 
-  // Keep file rows aligned with card tone (subtle)
+  // File rows border
   const fileRowBorder =
     hasMeeting ? "border-amber-200" : isReviewed ? "border-emerald-200" : "border-tealbrand-200";
 
-  // Intern view: show Mentor Note if exists
+  // Intern view: show Mentor Remark at card bottom if exists, styled distinctly
   const showMentorNote =
     variant === "intern" &&
-    !!(submission.mentorRemark && submission.mentorRemark.trim());
+    typeof submission.mentorRemark === "string" &&
+    !!submission.mentorRemark.trim();
 
   return (
     <article
@@ -626,34 +693,13 @@ function SubmissionCard({
           {hasMeeting ? <StatusBadge kind="alert" label="Meeting Scheduled" /> : null}
         </div>
       </div>
-
       <p className="mt-3 text-sm font-semibold text-slate-800">
         {submission.description}
       </p>
-
-      {showMentorNote ? (
-        <div className="mt-4 rounded-2xl border border-tealbrand-400 bg-tealbrand-50 px-4 py-3">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
-              Mentor Note
-            </span>
-            <span
-              className="text-xs font-semibold text-tealbrand-700 bg-white/80 px-2 py-0.5 rounded"
-            >
-              New
-            </span>
-          </div>
-          <div className="text-sm font-semibold text-tealbrand-900 whitespace-pre-line">
-            {submission.mentorRemark}
-          </div>
-        </div>
-      ) : null}
-
       <div className="mt-4 space-y-2">
         <div className="text-xs font-extrabold uppercase tracking-wide text-slate-600">
           Files
         </div>
-
         {submission.files && submission.files.length ? (
           <ul className="space-y-2">
             {submission.files.map((f) => (
@@ -672,7 +718,6 @@ function SubmissionCard({
                     {formatBytes(f.size)}
                   </div>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => downloadPlaceholderFile(f.name)}
@@ -705,7 +750,6 @@ function SubmissionCard({
           </div>
         )}
       </div>
-
       {submission.meeting ? (
         <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
           <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
@@ -719,8 +763,7 @@ function SubmissionCard({
           </div>
         </div>
       ) : null}
-
-      {variant === "intern" ? (
+      {variant === "intern" ? (<>
         <div className="mt-5 flex items-center justify-end gap-2">
           <IconButton label="Edit" onClick={onEdit}>
             <EditIcon />
@@ -729,7 +772,26 @@ function SubmissionCard({
             <TrashIcon />
           </IconButton>
         </div>
-      ) : (
+        {/* Show mentor remark at card bottom when available */}
+        {showMentorNote ? (
+          <div className="mt-6">
+            <div className="rounded-2xl border-2 border-tealbrand-300 bg-white/90 px-4 py-3">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
+                  Mentor Remark
+                </span>
+                <span className="text-xs font-semibold text-tealbrand-700 bg-tealbrand-50 px-2 py-0.5 rounded border border-tealbrand-100">
+                  New
+                </span>
+              </div>
+              <div className="text-sm font-semibold text-tealbrand-900 whitespace-pre-line">
+                {submission.mentorRemark}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>) : (
+        // Mentor actions only. Remark appears separately in dashboard grid above Add/Edit button.
         <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <ActionButton kind="success" onClick={onReviewedSuccessfully}>
             Reviewed Successfully
@@ -745,11 +807,8 @@ function SubmissionCard({
 
 // PUBLIC_INTERFACE
 function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
-  /**
-   * Requirement:
-   * - Compact modal, dark-teal themed
-   * - Cancel closes without changes
-   * - Save commits to shared state (instant card update)
+  /** 
+   * (No change from baseline, just included for completeness.)
    */
   const titleId = "editWorkTitle";
   const descId = "editWorkDesc";
@@ -796,7 +855,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 </span>
               </div>
             </div>
-
             <button
               type="button"
               onClick={onClose}
@@ -811,7 +869,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
             </button>
           </div>
         </header>
-
         <div className="max-h-[70vh] overflow-y-auto px-5 py-5">
           <div className="space-y-5">
             <div>
@@ -830,7 +887,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 className="mt-2 w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
               />
             </div>
-
             <div>
               <label
                 htmlFor={descId}
@@ -850,13 +906,11 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 Scroll inside the modal if content is long.
               </div>
             </div>
-
             <div>
               <div className="text-sm font-extrabold text-white">Attached Files</div>
               <div className="mt-1 text-xs font-semibold text-white/75">
                 Remove existing files or add new ones. Changes apply when you click “Save Changes”.
               </div>
-
               {draftFiles && draftFiles.length ? (
                 <ul className="mt-3 space-y-2">
                   {draftFiles.map((f) => (
@@ -872,7 +926,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                           {formatBytes(f.size)}
                         </div>
                       </div>
-
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -887,7 +940,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                         >
                           <DownloadIcon />
                         </button>
-
                         <button
                           type="button"
                           onClick={() =>
@@ -912,7 +964,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                   No files attached.
                 </div>
               )}
-
               <div className="mt-4">
                 <label htmlFor={fileId} className="text-sm font-extrabold text-white">
                   Add Files
@@ -936,7 +987,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
             </div>
           </div>
         </div>
-
         <div className="border-t border-tealbrand-800/70 bg-tealbrand-900 px-5 py-4">
           <div className="flex items-center justify-end gap-2">
             <button
@@ -946,7 +996,6 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
             >
               Cancel
             </button>
-
             <button
               type="button"
               onClick={() => {
@@ -968,6 +1017,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
   );
 }
 
+/** Simple compact modal for scheduling a meeting (no changes) */
 function MeetingModal({ open, submission, onClose, onSchedule }) {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
@@ -1007,7 +1057,6 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
                 </div>
               ) : null}
             </div>
-
             <button
               type="button"
               onClick={onClose}
@@ -1048,7 +1097,6 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
                   className="mt-2 w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
                 />
               </div>
-
               <div>
                 <label htmlFor="mTime" className="text-sm font-extrabold text-white">
                   Time
@@ -1062,7 +1110,6 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
                 />
               </div>
             </div>
-
             <div>
               <label htmlFor="mDesc" className="text-sm font-extrabold text-white">
                 Short Description
@@ -1076,7 +1123,6 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
                 className="mt-2 w-full resize-none rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
               />
             </div>
-
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
                 type="button"
@@ -1093,8 +1139,6 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
               </button>
             </div>
           </form>
-
-
         </div>
       </div>
     </div>
@@ -1194,14 +1238,12 @@ function downloadPlaceholderFile(filename) {
   const content = `T3Log UI-only download\n\nFilename: ${safeName}\nGenerated: ${new Date().toLocaleString()}\n\nThis is placeholder content to demonstrate a download action without a backend.`;
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-
   const a = document.createElement("a");
   a.href = url;
   a.download = safeName.endsWith(".txt") ? safeName : `${safeName}.txt`;
   document.body.appendChild(a);
   a.click();
   a.remove();
-
   setTimeout(() => URL.revokeObjectURL(url), 500);
 }
 
