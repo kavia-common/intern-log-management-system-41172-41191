@@ -477,9 +477,8 @@ function MentorDashboard({ submissions, setSubmissions }) {
       <button
         type="button"
         className={cx(
-          // Positioned top-right with a bit more inset/space than before
-          "remark-floating-btn absolute right-4 top-4 z-20 transition-opacity duration-200 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-          hasRemark && "opacity-100", // Always visible if remark exists, else show on hover/focus
+          // Always visible & pinned top-right (no hover dependency)
+          "remark-floating-btn absolute right-4 top-4 z-20",
           "inline-flex items-center gap-1.5 rounded-xl border border-tealbrand-900 px-2.5 py-1.5 text-xs font-black bg-tealbrand-800 text-white shadow-md hover:bg-tealbrand-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-400 focus-visible:ring-offset-2"
         )}
         onClick={() => openRemarkModal(submission.id, submission.mentorRemark)}
