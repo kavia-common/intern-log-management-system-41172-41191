@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { supabase } from "./utils/supabaseClient";
-console.debug("App.js mounted")
-// FEATURE FLAG: Use Supabase (set to true to re-enable Supabase)
-// All Supabase imports/references are wrapped with this flag
-const USE_SUPABASE = false;
+console.debug("App.js mounted");
+
+// FEATURE FLAG: Use Supabase (set to true to enable Supabase live mode)
+const USE_SUPABASE = true;
+
 let submissionsApi;
 if (USE_SUPABASE) {
   // eslint-disable-next-line global-require
@@ -12,16 +13,14 @@ if (USE_SUPABASE) {
 }
 
 /**
- * T3Log UI (frontend-only) — Spec implementation
+ * T3Log UI — Supabase live mode
  *
- * Mentor Remark Modal Update (New Position/Behavior):
- * - The '+ Remark' button moves to the top-right corner of mentor cards (visible on hover and always if card has a remark).
- * - Clicking opens a compact, dark-teal modal with textarea & Send/Cancel icon-buttons.
- * - After sending, remark displays at the absolute card bottom below ALL actions (not inline).
- * - Hide remark area when empty.
- * - Teal accent theme (Tailwind config).
- * - State remains shared, instant update to intern view.
- * - Clean, tidy spacing/layout.
+ * Live mode requirements:
+ * - Table: public."log-creation" (hyphenated name -> quoted identifier)
+ * - Bucket: intern-work (public)
+ * - Intern submit: insert row -> upload file -> update row.file_url with public URL
+ * - Mentor actions: update status and mentor_remark in DB
+ * - Realtime: keep both intern and mentor views in sync
  */
 
 // Utility for className concatenation
@@ -36,11 +35,12 @@ function App() {
   const [role, setRole] = useState(null);
 
   /**
-   * Shared submissions store (local-only now).
+   * Shared submissions store. In live mode, this is hydrated from Supabase and kept
+   * in sync via realtime subscriptions.
    */
   const [submissions, setSubmissions] = useState([]);
 
-  // Initial load + (if enabled) realtime sync
+  // Initial load + realtime sync
   useEffect(() => {
     let unsub = null;
     let cancelled = false;
@@ -56,6 +56,7 @@ function App() {
             setSubmissions(data);
           }
         }
+
         const sub = submissionsApi.subscribeToSubmissionsChanges({
           onInsert: (uiRow) => {
             setSubmissions((prev) => {
@@ -64,14 +65,18 @@ function App() {
             });
           },
           onUpdate: (uiRow) => {
-            setSubmissions((prev) => prev.map((s) => (s.id === uiRow.id ? { ...s, ...uiRow } : s)));
+            setSubmissions((prev) =>
+              prev.map((s) => (s.id === uiRow.id ? { ...s, ...uiRow } : s))
+            );
           },
           onDelete: (id) => {
             setSubmissions((prev) => prev.filter((s) => s.id !== id));
           }
         });
+
         unsub = () => sub.unsubscribe();
       }
+
       bootstrap();
 
       return () => {
@@ -79,8 +84,8 @@ function App() {
         if (unsub) unsub();
       };
     }
-    // Local mode: just initialize to empty array (no-op)
-    return () => { };
+
+    return () => {};
   }, []);
 
   // PUBLIC_INTERFACE
@@ -248,6 +253,8 @@ function InternDashboard({ submissions, setSubmissions }) {
   const [description, setDescription] = useState("");
   const [fileList, setFileList] = useState([]);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   /** Edit Modal state */
   const [editingSubmissionId, setEditingSubmissionId] = useState(null);
 
@@ -260,23 +267,18 @@ function InternDashboard({ submissions, setSubmissions }) {
   const isEditModalOpen = Boolean(editingSubmission);
 
   // PUBLIC_INTERFACE
-  function handleSubmit(e) {
-    /** Create a new local-only submission. */
+  async function handleSubmit(e) {
+    /**
+     * Live mode:
+     * 1) create DB row (title, description, intern_email, status)
+     * 2) upload selected file (first file only for now; UI can still show multiple names)
+     * 3) update DB row with file_url public URL
+     */
     e.preventDefault();
 
     const trimmedTitle = title.trim();
     const trimmedDesc = description.trim();
     if (!trimmedTitle || !trimmedDesc) return;
-
-    const now = new Date();
-    const timestampIso = now.toISOString();
-    const timestampLabel = now.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
 
     const rawFiles = Array.from(fileList || []);
     const uiFiles = rawFiles.map((f) => ({
@@ -285,30 +287,115 @@ function InternDashboard({ submissions, setSubmissions }) {
       size: typeof f.size === "number" ? f.size : 0
     }));
 
-    // In local mode, fileUrl is always null
-    setSubmissions((prev) => [
-      {
-        id: cryptoLikeId(),
+    if (!USE_SUPABASE || !submissionsApi) {
+      // Local fallback (shouldn't happen with USE_SUPABASE=true, but keep safe)
+      const now = new Date();
+      const timestampIso = now.toISOString();
+      const timestampLabel = now.toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+
+      setSubmissions((prev) => [
+        {
+          id: cryptoLikeId(),
+          title: trimmedTitle,
+          description: trimmedDesc,
+          timestampIso,
+          timestampLabel,
+          files: uiFiles,
+          status: "none",
+          meeting: null,
+          mentorRemark: undefined,
+          fileUrl: null
+        },
+        ...prev
+      ]);
+
+      setTitle("");
+      setDescription("");
+      setFileList([]);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // Placeholder email per instruction (until auth is added)
+      const internEmail = "intern@example.com";
+
+      // Step 1: create row (status defaults in DB, but we also provide it to be explicit)
+      const payload = {
         title: trimmedTitle,
         description: trimmedDesc,
-        timestampIso,
-        timestampLabel,
-        files: uiFiles,
-        status: "none",
-        meeting: null,
-        mentorRemark: undefined,
-        fileUrl: null
-      },
-      ...prev
-    ]);
+        intern_email: internEmail,
+        status: "none"
+      };
 
-    setTitle("");
-    setDescription("");
-    setFileList([]);
+      // Upload: take the first file as the actual uploaded object;
+      // UI still lists multiple selected file names for consistency with current UX.
+      const fileToUpload = rawFiles[0] || null;
+
+      const { data: createdOrUpdated, error } =
+        await submissionsApi.createSubmissionWithOptionalUpload({
+          payload,
+          file: fileToUpload
+        });
+
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.error("Supabase submit failed:", error);
+      }
+
+      if (createdOrUpdated) {
+        // Update local state optimistically with returned DB row (but realtime will also reconcile).
+        const mapped =
+          submissionsApi.mapDbRowToUi?.(createdOrUpdated) ||
+          // fallback mapping (should exist)
+          {
+            id: createdOrUpdated.id,
+            title: createdOrUpdated.title,
+            description: createdOrUpdated.description,
+            status: createdOrUpdated.status || "none",
+            mentorRemark: createdOrUpdated.mentor_remark ?? undefined,
+            fileUrl: createdOrUpdated.file_url || null,
+            files: createdOrUpdated.file_url
+              ? [
+                  {
+                    id: `file-${createdOrUpdated.id}`,
+                    name: "uploaded_file",
+                    size: 0
+                  }
+                ]
+              : []
+          };
+
+        // Preserve UI list of selected files (names/sizes) if user selected multiple.
+        // If we got a file URL back, clicking download will open that URL.
+        const merged = { ...mapped, files: uiFiles.length ? uiFiles : mapped.files };
+
+        setSubmissions((prev) => {
+          if (prev.some((s) => s.id === merged.id)) {
+            return prev.map((s) => (s.id === merged.id ? { ...s, ...merged } : s));
+          }
+          return [merged, ...prev];
+        });
+      }
+
+      setTitle("");
+      setDescription("");
+      setFileList([]);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   // PUBLIC_INTERFACE
-  function deleteSubmission(id) {
+  async function deleteSubmission(id) {
+    // Preserve current UI/UX: allow deletion locally.
+    // If you want DB deletion later, add a delete RPC/policy and call supabase.from(TABLE).delete().
     setSubmissions((prev) => prev.filter((s) => s.id !== id));
     if (editingSubmissionId === id) setEditingSubmissionId(null);
   }
@@ -325,6 +412,7 @@ function InternDashboard({ submissions, setSubmissions }) {
 
   // PUBLIC_INTERFACE
   function updateSubmissionImmediate(id, patch) {
+    // Preserve current UI behavior (edit modal affects local-only fields).
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
     );
@@ -385,7 +473,7 @@ function InternDashboard({ submissions, setSubmissions }) {
                         className="mt-2 block w-full cursor-pointer rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 file:mr-4 file:cursor-pointer file:rounded-xl file:border-0 file:bg-tealbrand-600 file:px-4 file:py-2.5 file:text-sm file:font-extrabold file:text-white hover:file:bg-tealbrand-700"
                       />
                       <p className="mt-2 text-xs font-semibold text-slate-500">
-                        UI-only upload. File names are stored in state so download icons can be shown.
+                        Uploads to Supabase Storage (intern-work). The first selected file is uploaded; file names are shown as selected.
                       </p>
                     </div>
                     <div className="rounded-2xl border border-tealbrand-100 bg-tealbrand-50 px-4 py-3">
@@ -408,9 +496,15 @@ function InternDashboard({ submissions, setSubmissions }) {
                       </button>
                       <button
                         type="submit"
-                        className="inline-flex h-10 items-center justify-center rounded-2xl bg-tealbrand-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-tealbrand-700 active:bg-tealbrand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
+                        disabled={isSubmitting}
+                        className={cx(
+                          "inline-flex h-10 items-center justify-center rounded-2xl px-5 text-sm font-extrabold text-white shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2",
+                          isSubmitting
+                            ? "bg-slate-400 cursor-not-allowed"
+                            : "bg-tealbrand-600 hover:bg-tealbrand-700 active:bg-tealbrand-800"
+                        )}
                       >
-                        Submit
+                        {isSubmitting ? "Submitting…" : "Submit"}
                       </button>
                     </div>
                   </form>
@@ -422,14 +516,14 @@ function InternDashboard({ submissions, setSubmissions }) {
                 <header className="border-b border-tealbrand-200 px-5 py-5">
                   <h2 className="text-base font-black text-slate-900">History</h2>
                   <p className="mt-1 text-sm font-semibold text-slate-600">
-                    Submissions appear instantly below with timestamps, file downloads, and edit/delete controls.
+                    Submissions appear below with timestamps, file downloads, and edit/delete controls.
                   </p>
                 </header>
                 <div className="px-5 py-5">
                   {!hasAny ? (
                     <EmptyState
                       title="No submissions yet"
-                      description="Submit your first work item to see it appear here instantly."
+                      description="Submit your first work item to see it appear here."
                     />
                   ) : (
                     <div className="space-y-4">
@@ -478,10 +572,31 @@ function MentorDashboard({ submissions, setSubmissions }) {
     return submissions.find((s) => s.id === meetingTargetId) || null;
   }, [meetingTargetId, submissions]);
 
+  async function persistUiPatch(id, uiPatch) {
+    if (!USE_SUPABASE || !submissionsApi) return;
+
+    // Local immediate update for snappy UX
+    setSubmissions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...uiPatch } : s))
+    );
+
+    const { error } = await submissionsApi.updateSubmissionFromUi(id, uiPatch);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to persist mentor action:", error);
+      // Realtime subscription will eventually reconcile if DB update did not apply.
+    }
+  }
+
   // PUBLIC_INTERFACE
   function markReviewed(id) {
     if (!id) return;
-    // Local-only: just update local state
+
+    if (USE_SUPABASE) {
+      persistUiPatch(id, { status: "reviewed" });
+      return;
+    }
+
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: "reviewed" } : s))
     );
@@ -490,12 +605,15 @@ function MentorDashboard({ submissions, setSubmissions }) {
   // PUBLIC_INTERFACE
   function scheduleMeeting(id, meeting) {
     if (!id) return;
-    // Local-only: update status+meeting locally
+
+    // Meeting is UI-only currently (not persisted to DB), but status is persisted.
     setSubmissions((prev) =>
-      prev.map((s) =>
-        s.id === id ? { ...s, meeting, status: "meeting_scheduled" } : s
-      )
+      prev.map((s) => (s.id === id ? { ...s, meeting, status: "meeting_scheduled" } : s))
     );
+
+    if (USE_SUPABASE) {
+      persistUiPatch(id, { status: "meeting_scheduled" });
+    }
   }
 
   // PUBLIC_INTERFACE
@@ -514,23 +632,28 @@ function MentorDashboard({ submissions, setSubmissions }) {
   function commitMentorRemark(id) {
     const note = (modalDraft || "").trim();
     if (!id || !note) return;
+
+    if (USE_SUPABASE) {
+      // Persist to DB and allow realtime to sync intern view
+      persistUiPatch(id, { mentorRemark: note });
+      closeRemarkModal();
+      return;
+    }
+
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, mentorRemark: note } : s))
     );
     closeRemarkModal();
   }
 
-  // Button at top-right inside mentor card ("+ Remark"), absolute positioned.
   function MentorRemarkButton({ submission }) {
     const hasRemark =
-      typeof submission.mentorRemark === "string" &&
-      submission.mentorRemark.trim();
+      typeof submission.mentorRemark === "string" && submission.mentorRemark.trim();
 
     return (
       <button
         type="button"
         className={cx(
-          // Always visible & pinned top-right (no hover dependency)
           "remark-floating-btn absolute right-4 top-4 z-20",
           "inline-flex items-center gap-1.5 rounded-xl border border-tealbrand-900 px-2.5 py-1.5 text-xs font-black bg-tealbrand-800 text-white shadow-md hover:bg-tealbrand-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-400 focus-visible:ring-offset-2"
         )}
@@ -544,7 +667,6 @@ function MentorDashboard({ submissions, setSubmissions }) {
     );
   }
 
-  // Render each submission as card (mentor - with actions, +Remark position top-right)
   return (
     <>
       <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
@@ -573,7 +695,6 @@ function MentorDashboard({ submissions, setSubmissions }) {
                   renderExtraActions={null}
                   MentorRemarkButtonSlot={<MentorRemarkButton submission={s} />}
                 />
-                {/* External Mentor Remark box removed: in-card remark is the only display location */}
               </div>
             ))}
           </div>
@@ -633,13 +754,15 @@ function MentorRemarkModal({ open, value, onChange, onClose, onSend, canSend }) 
             onClick={onClose}
             aria-label="Cancel"
             className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white/80 text-xs font-extrabold shadow-sm transition hover:bg-white/20 active:bg-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
-          >✕</button>
+          >
+            ✕
+          </button>
         </header>
         <div className="px-4 py-3">
           <textarea
             ref={inputRef}
             value={value}
-            onChange={e => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value)}
             rows={3}
             placeholder="Add mentor feedback…"
             className="w-full resize-none rounded-xl border border-white/20 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-300 focus:ring-2 focus:ring-white/40"
@@ -682,23 +805,6 @@ function MentorRemarkModal({ open, value, onChange, onClose, onSend, canSend }) 
   );
 }
 
-// Card-bottom remark display (used for both intern and mentor; compact, only if exists)
-function MentorRemarkDisplay({ remark }) {
-  if (typeof remark !== "string" || !remark.trim()) return null;
-  return (
-    <div className="mt-2 rounded-2xl border border-tealbrand-400 bg-tealbrand-50 px-4 py-3">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
-          Mentor Remark
-        </span>
-      </div>
-      <div className="text-sm font-semibold text-tealbrand-900 whitespace-pre-line">
-        {remark}
-      </div>
-    </div>
-  );
-}
-
 /**
  * Card tone rules:
  * - meeting scheduled: light orange bg + dark orange border (highest priority)
@@ -734,16 +840,12 @@ function SubmissionCard({
 
   const cardTone = getCardToneClasses(submission);
 
-  // File rows border
-  const fileRowBorder =
-    hasMeeting
-      ? "border-amber-200"
-      : isReviewed
-        ? "border-emerald-200"
-        : "border-tealbrand-200";
+  const fileRowBorder = hasMeeting
+    ? "border-amber-200"
+    : isReviewed
+      ? "border-emerald-200"
+      : "border-tealbrand-200";
 
-  // Always show mentor remark at the very bottom of the card (when it exists),
-  // for both mentor and intern cards per spec.
   const mentorRemarkBottom =
     typeof submission.mentorRemark === "string" && submission.mentorRemark.trim();
 
@@ -752,14 +854,12 @@ function SubmissionCard({
       className={cx(
         "group relative rounded-3xl border-2 shadow-sm transition",
         cardTone,
-        // Slightly more padding + reserved space so the top-right “+ Remark” doesn’t collide
         "p-6 pt-6"
       )}
       tabIndex={-1}
     >
-      {/* Mentor view: absolute Remark button at top-right */}
       {variant === "mentor" ? MentorRemarkButtonSlot : null}
-      {/* Header spacing refined to match requested layout (name/date/files areas) */}
+
       <div className="flex items-start justify-between gap-4 pr-14">
         <div className="min-w-0">
           <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-600">
@@ -780,9 +880,11 @@ function SubmissionCard({
           {hasMeeting ? <StatusBadge kind="alert" label="Meeting Scheduled" /> : null}
         </div>
       </div>
+
       <p className="mt-4 text-sm font-semibold text-slate-800">
         {submission.description}
       </p>
+
       <div className="mt-5 space-y-2">
         <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-600">
           Files
@@ -808,8 +910,6 @@ function SubmissionCard({
                 <button
                   type="button"
                   onClick={() => {
-                    // If we have a real uploaded file URL (Supabase Storage public URL), open it.
-                    // Otherwise, fall back to the placeholder download behavior.
                     if (submission.fileUrl) {
                       window.open(submission.fileUrl, "_blank", "noopener,noreferrer");
                       return;
@@ -845,6 +945,7 @@ function SubmissionCard({
           </div>
         )}
       </div>
+
       {submission.meeting ? (
         <div className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
           <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
@@ -858,6 +959,7 @@ function SubmissionCard({
           </div>
         </div>
       ) : null}
+
       {variant === "intern" ? (
         <div className="mt-6 flex items-center justify-end gap-2">
           <IconButton label="Edit" onClick={onEdit}>
@@ -868,7 +970,6 @@ function SubmissionCard({
           </IconButton>
         </div>
       ) : (
-        // Mentor actions only. Render each action. No inline remark controls here.
         <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <ActionButton kind="success" onClick={onReviewedSuccessfully}>
             Reviewed Successfully
@@ -878,13 +979,9 @@ function SubmissionCard({
           </ActionButton>
         </div>
       )}
-      {/* Mentor remark stays in-card and is the only display location */}
+
       {mentorRemarkBottom ? (
-        <div
-          className={cx(
-            "mt-6 rounded-2xl border-2 border-tealbrand-300 bg-white/90 px-4 py-3"
-          )}
-        >
+        <div className={cx("mt-6 rounded-2xl border-2 border-tealbrand-300 bg-white/90 px-4 py-3")}>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-extrabold uppercase tracking-wide text-tealbrand-800">
               remarks added
@@ -898,15 +995,14 @@ function SubmissionCard({
           </div>
         </div>
       ) : null}
+
+      {renderExtraActions}
     </article>
   );
 }
 
 // PUBLIC_INTERFACE
 function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
-  /**
-   * (No change from baseline, just included for completeness.)
-   */
   const titleId = "editWorkTitle";
   const descId = "editWorkDesc";
   const fileId = "editWorkFiles";
@@ -947,9 +1043,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
               <h2 className="text-base font-black tracking-tight">Edit Submission</h2>
               <div className="mt-1 text-xs font-semibold text-white/85">
                 Submitted:{" "}
-                <span className="font-extrabold text-white">
-                  {submission.timestampLabel}
-                </span>
+                <span className="font-extrabold text-white">{submission.timestampLabel}</span>
               </div>
             </div>
             <button
@@ -966,13 +1060,11 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
             </button>
           </div>
         </header>
+
         <div className="max-h-[70vh] overflow-y-auto px-5 py-5">
           <div className="space-y-5">
             <div>
-              <label
-                htmlFor={titleId}
-                className="text-sm font-extrabold text-white"
-              >
+              <label htmlFor={titleId} className="text-sm font-extrabold text-white">
                 Work Title
               </label>
               <input
@@ -984,11 +1076,9 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 className="mt-2 w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
               />
             </div>
+
             <div>
-              <label
-                htmlFor={descId}
-                className="text-sm font-extrabold text-white"
-              >
+              <label htmlFor={descId} className="text-sm font-extrabold text-white">
                 Description
               </label>
               <textarea
@@ -1003,11 +1093,13 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                 Scroll inside the modal if content is long.
               </div>
             </div>
+
             <div>
               <div className="text-sm font-extrabold text-white">Attached Files</div>
               <div className="mt-1 text-xs font-semibold text-white/75">
                 Remove existing files or add new ones. Changes apply when you click “Save Changes”.
               </div>
+
               {draftFiles && draftFiles.length ? (
                 <ul className="mt-3 space-y-2">
                   {draftFiles.map((f) => (
@@ -1016,9 +1108,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                       className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/10 px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-white">
-                          {f.name}
-                        </div>
+                        <div className="truncate text-sm font-semibold text-white">{f.name}</div>
                         <div className="text-xs font-semibold text-white/70">
                           {formatBytes(f.size)}
                         </div>
@@ -1026,22 +1116,26 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => downloadPlaceholderFile(f.name)}
+                          onClick={() => {
+                            if (submission.fileUrl) {
+                              window.open(submission.fileUrl, "_blank", "noopener,noreferrer");
+                              return;
+                            }
+                            downloadPlaceholderFile(f.name);
+                          }}
                           className={cx(
                             "inline-flex items-center justify-center rounded-xl border border-white/20 bg-white px-3 py-2",
                             "text-xs font-extrabold text-tealbrand-900 shadow-sm transition hover:bg-white/95 active:bg-white/90",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
                           )}
                           aria-label={`Download ${f.name}`}
-                          title="Download"
+                          title={submission.fileUrl ? "Open uploaded file" : "Download"}
                         >
                           <DownloadIcon />
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
-                            setDraftFiles((prev) => prev.filter((x) => x.id !== f.id))
-                          }
+                          onClick={() => setDraftFiles((prev) => prev.filter((x) => x.id !== f.id))}
                           className={cx(
                             "inline-flex items-center justify-center rounded-xl border border-white/25 bg-white/10 px-3 py-2",
                             "text-xs font-extrabold text-white shadow-sm transition hover:bg-white/15 active:bg-white/20",
@@ -1061,6 +1155,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                   No files attached.
                 </div>
               )}
+
               <div className="mt-4">
                 <label htmlFor={fileId} className="text-sm font-extrabold text-white">
                   Add Files
@@ -1084,6 +1179,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
             </div>
           </div>
         </div>
+
         <div className="border-t border-tealbrand-800/70 bg-tealbrand-900 px-5 py-4">
           <div className="flex items-center justify-end gap-2">
             <button
@@ -1114,7 +1210,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
   );
 }
 
-/** Simple compact modal for scheduling a meeting (no changes) */
+/** Simple compact modal for scheduling a meeting */
 function MeetingModal({ open, submission, onClose, onSchedule }) {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
@@ -1168,6 +1264,7 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
             </button>
           </div>
         </header>
+
         <div className="px-5 py-5">
           <form
             className="space-y-4"
@@ -1206,6 +1303,7 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
                 />
               </div>
             </div>
+
             <div>
               <label htmlFor="mDesc" className="text-sm font-extrabold text-white">
                 Short Description
@@ -1219,6 +1317,7 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
                 className="mt-2 w-full resize-none rounded-2xl border border-white/20 bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-sm outline-none placeholder:text-slate-400 focus:border-tealbrand-200 focus:ring-2 focus:ring-white/40"
               />
             </div>
+
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
                 type="button"
@@ -1317,7 +1416,6 @@ function IconButton({ label, onClick, danger, children }) {
 /** Helpers */
 
 function cryptoLikeId() {
-  // Avoid external deps; provide stable-enough ids for UI state.
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -1479,4 +1577,3 @@ function MentorIcon() {
 }
 
 export default App;
-

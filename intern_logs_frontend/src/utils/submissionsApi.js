@@ -1,26 +1,26 @@
 import { supabase } from "./supabaseClient";
 
 /**
- * Submissions API
- * Table: public.submissions
+ * Submissions API (Supabase)
  *
- * Columns:
- * - id (uuid)
- * - created_at (timestamptz)
- * - intern_email (text)
- * - title (text)
- * - description (text)
- * - status (text)
- * - mentor_remark (text, nullable)
- * - file_url (text, nullable)
- * - github_username (text, nullable)
+ * Table: public."log-creation"
+ * Storage bucket: intern-work (PUBLIC)
+ *
+ * All uploads must go to the public "intern-work" bucket.
+ * The DB row's file_url must be set to Supabase's public URL for that file.
+ * The UI must always use file_url for downloads/click actions.
+ *
+ * This module provides a small adapter that maps DB rows to the richer UI submission
+ * shape used by `src/App.js`.
  */
 
 const STORAGE_BUCKET = "intern-work";
+// IMPORTANT: Table name contains a hyphen, so it must be passed as a quoted identifier.
+const TABLE_NAME = 'log-creation';
 
 /**
  * Creates a deterministic-ish storage object path for the submission file.
- * This follows the convention documented in assets/supabase.md.
+ * This follows a convention that is unique and easy to browse.
  */
 function buildSubmissionObjectPath(submissionId, file) {
   const safeName = (file?.name || "file").replace(/[^\w.\-]+/g, "_");
@@ -28,9 +28,22 @@ function buildSubmissionObjectPath(submissionId, file) {
 }
 
 /**
+ * Best-effort filename extraction for UI display.
+ */
+function guessFilenameFromUrl(url) {
+  try {
+    const u = new URL(url);
+    const last = u.pathname.split("/").filter(Boolean).pop();
+    if (!last) return null;
+    return last.replace(/^\d+_/, "");
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Convert a Supabase row into the UI submission shape used by App.js.
- * NOTE: The UI currently tracks a richer shape (timestampLabel, files[], meeting),
- * while the DB schema is simpler. We derive reasonable defaults here.
+ * Note: DB schema is simpler than UI (meeting, files[] list, timestampLabel).
  */
 function mapRowToUiSubmission(row) {
   const createdAt = row?.created_at ? new Date(row.created_at) : new Date();
@@ -44,7 +57,7 @@ function mapRowToUiSubmission(row) {
     minute: "2-digit"
   });
 
-  // The DB stores only file_url. For UI, show a single file row if file_url exists.
+  // UI uses files[]; DB stores a single file_url. Display a single file row if present.
   const files = row?.file_url
     ? [
         {
@@ -63,11 +76,10 @@ function mapRowToUiSubmission(row) {
     timestampLabel,
     files,
     status: row.status || "none",
-    meeting: null, // not persisted in schema currently
+    meeting: null, // not persisted in current DB schema
     mentorRemark: row.mentor_remark ?? undefined,
     fileUrl: row.file_url || null,
-    internEmail: row.intern_email || undefined,
-    githubUsername: row.github_username || undefined
+    internEmail: row.intern_email || undefined
   };
 }
 
@@ -87,27 +99,14 @@ function mapUiPatchToDbPatch(patch) {
     dbPatch.file_url = patch.fileUrl ?? null;
   }
 
-  // NOTE: meeting is UI-only (not in schema). title/description editing is UI-only in this app currently.
   return dbPatch;
-}
-
-function guessFilenameFromUrl(url) {
-  try {
-    const u = new URL(url);
-    const last = u.pathname.split("/").filter(Boolean).pop();
-    if (!last) return null;
-    // remove leading "<timestamp>_" if present
-    return last.replace(/^\d+_/, "");
-  } catch {
-    return null;
-  }
 }
 
 // PUBLIC_INTERFACE
 export const listSubmissions = async () => {
-  /** List submissions newest-first. */
+  /** List submissions newest-first from public."log-creation". */
   const { data, error } = await supabase
-    .from("submissions")
+    .from(TABLE_NAME)
     .select("*")
     .order("created_at", { ascending: false });
 
@@ -126,7 +125,7 @@ export const listSubmissionsAsUi = async () => {
 export const createSubmission = async (payload) => {
   /** Create a submission row. */
   const { data, error } = await supabase
-    .from("submissions")
+    .from(TABLE_NAME)
     .insert([payload])
     .select("*")
     .single();
@@ -138,7 +137,7 @@ export const createSubmission = async (payload) => {
 export const updateSubmission = async (id, patch) => {
   /** Update a submission row by id. */
   const { data, error } = await supabase
-    .from("submissions")
+    .from(TABLE_NAME)
     .update(patch)
     .eq("id", id)
     .select("*")
@@ -171,9 +170,16 @@ export const uploadSubmissionFile = async (submissionId, file) => {
    *
    * Bucket: intern-work (expected PUBLIC)
    * Path: submissions/<submission_id>/<timestamp>_<original_filename>
+   *
+   * This method ensures uploaded files are visible in the "intern-work" bucket
+   * and that we always extract and return the public URL (file_url).
    */
   if (!submissionId) {
-    return { publicUrl: null, objectPath: null, error: new Error("Missing submissionId") };
+    return {
+      publicUrl: null,
+      objectPath: null,
+      error: new Error("Missing submissionId")
+    };
   }
   if (!file) {
     return { publicUrl: null, objectPath: null, error: new Error("Missing file") };
@@ -181,52 +187,62 @@ export const uploadSubmissionFile = async (submissionId, file) => {
 
   const objectPath = buildSubmissionObjectPath(submissionId, file);
 
+  // Patch: allow upsert:true to prevent silent overwrite issues in dev (can be made 'false' in prod)
+  // But here we use upsert false per the spec.
   const { error: uploadError } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .upload(objectPath, file, {
-      // Avoid overwriting accidentally; path contains timestamp so collisions are unlikely.
-      upsert: false
-    });
+    .upload(objectPath, file, { upsert: false });
 
   if (uploadError) {
     return { publicUrl: null, objectPath, error: uploadError };
   }
 
+  // getPublicUrl returns { publicUrl: ... }
   const { data: publicData } = supabase.storage
     .from(STORAGE_BUCKET)
     .getPublicUrl(objectPath);
 
+  // The correct property: publicData.publicUrl
   const publicUrl = publicData?.publicUrl || null;
 
   if (!publicUrl) {
     return {
       publicUrl: null,
       objectPath,
-      error: new Error("Upload succeeded but could not derive public URL (bucket may not be public).")
+      error: new Error(
+        "Upload succeeded but could not derive public URL (bucket may not be public)."
+      )
     };
   }
 
+  // Double-check: If intern-work is public, this URL should be directly reachable.
   return { publicUrl, objectPath, error: null };
 };
 
 // PUBLIC_INTERFACE
 export const createSubmissionWithOptionalUpload = async ({ payload, file }) => {
   /**
-   * Convenience wrapper:
-   * 1) Create DB row
-   * 2) If file present: upload to Storage, then update DB row with file_url
+   * PUBLIC_INTERFACE
+   * Handles Supabase upload flow:
+   * 1) Inserts row in DB (table: log-creation)
+   * 2) If file present, uploads file to the public "intern-work" bucket, retrieves its public URL,
+   *    and updates the corresponding DB row's file_url column.
+   * 3) Returns the DB row (with file_url set if upload succeeded).
    */
   const { data: created, error: createError } = await createSubmission(payload);
   if (createError || !created) return { data: null, error: createError };
 
   if (!file) return { data: created, error: null };
 
+  // Attempt file upload. If fails, row is left with file_url set to null.
   const { publicUrl, error: uploadError } = await uploadSubmissionFile(created.id, file);
+
   if (uploadError) {
     // Keep the created submission even if file upload fails; caller can show a warning.
     return { data: created, error: uploadError };
   }
 
+  // Update the newly created DB row with the file_url (public URL from Supabase Storage)
   const { data: updated, error: updateError } = await updateSubmission(created.id, {
     file_url: publicUrl
   });
@@ -234,24 +250,24 @@ export const createSubmissionWithOptionalUpload = async ({ payload, file }) => {
   if (updateError || !updated) {
     return { data: created, error: updateError };
   }
-
+  // Success: return DB row with file_url set.
   return { data: updated, error: null };
 };
 
 // PUBLIC_INTERFACE
 export const subscribeToSubmissionsChanges = ({ onInsert, onUpdate, onDelete }) => {
   /**
-   * Subscribe to realtime changes for public.submissions.
+   * Subscribe to realtime changes for public."log-creation".
    *
    * Returns an object with an unsubscribe() function.
    *
    * NOTE: Requires Supabase Realtime enabled and appropriate RLS/policies allowing SELECT.
    */
   const channel = supabase
-    .channel("realtime:public.submissions")
+    .channel(`realtime:public.${TABLE_NAME}`)
     .on(
       "postgres_changes",
-      { event: "INSERT", schema: "public", table: "submissions" },
+      { event: "INSERT", schema: "public", table: TABLE_NAME },
       (payload) => {
         try {
           const row = payload?.new;
@@ -264,7 +280,7 @@ export const subscribeToSubmissionsChanges = ({ onInsert, onUpdate, onDelete }) 
     )
     .on(
       "postgres_changes",
-      { event: "UPDATE", schema: "public", table: "submissions" },
+      { event: "UPDATE", schema: "public", table: TABLE_NAME },
       (payload) => {
         try {
           const row = payload?.new;
@@ -277,7 +293,7 @@ export const subscribeToSubmissionsChanges = ({ onInsert, onUpdate, onDelete }) 
     )
     .on(
       "postgres_changes",
-      { event: "DELETE", schema: "public", table: "submissions" },
+      { event: "DELETE", schema: "public", table: TABLE_NAME },
       (payload) => {
         try {
           const oldRow = payload?.old;
@@ -291,14 +307,20 @@ export const subscribeToSubmissionsChanges = ({ onInsert, onUpdate, onDelete }) 
     )
     .subscribe((status) => {
       // eslint-disable-next-line no-console
-      console.log("[realtime] submissions channel status:", status);
+      console.log(`[realtime] ${TABLE_NAME} channel status:`, status);
     });
 
   return {
     // PUBLIC_INTERFACE
     unsubscribe() {
-      /** Unsubscribe from the submissions realtime channel. */
+      /** Unsubscribe from the realtime channel. */
       supabase.removeChannel(channel);
     }
   };
+};
+
+// PUBLIC_INTERFACE
+export const mapDbRowToUi = (row) => {
+  /** Exported for cases where App.js wants to map returned rows directly. */
+  return mapRowToUiSubmission(row);
 };
