@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import {
-  createSubmissionWithOptionalUpload,
-  listSubmissionsAsUi,
-  subscribeToSubmissionsChanges,
-  updateSubmissionFromUi
-} from "./utils/submissionsApi";
+
+// FEATURE FLAG: Use Supabase (set to true to re-enable Supabase)
+// All Supabase imports/references are wrapped with this flag
+const USE_SUPABASE = false;
+let submissionsApi;
+if (USE_SUPABASE) {
+  // eslint-disable-next-line global-require
+  submissionsApi = require("./utils/submissionsApi");
+}
 
 /**
  * T3Log UI (frontend-only) — Spec implementation
@@ -32,51 +35,51 @@ function App() {
   const [role, setRole] = useState(null);
 
   /**
-   * Shared submissions store (Supabase-backed + realtime).
-   * This remains the single source of truth so mentor changes instantly reflect for interns.
+   * Shared submissions store (local-only now).
    */
   const [submissions, setSubmissions] = useState([]);
 
-  // Initial load + realtime sync
+  // Initial load + (if enabled) realtime sync
   useEffect(() => {
     let unsub = null;
     let cancelled = false;
 
-    async function bootstrap() {
-      const { data, error } = await listSubmissionsAsUi();
-      if (!cancelled) {
-        if (error) {
-          // eslint-disable-next-line no-console
-          console.error("Failed to load submissions from Supabase:", error);
-        } else if (Array.isArray(data)) {
-          setSubmissions(data);
+    if (USE_SUPABASE && submissionsApi) {
+      async function bootstrap() {
+        const { data, error } = await submissionsApi.listSubmissionsAsUi();
+        if (!cancelled) {
+          if (error) {
+            // eslint-disable-next-line no-console
+            console.error("Failed to load submissions from Supabase:", error);
+          } else if (Array.isArray(data)) {
+            setSubmissions(data);
+          }
         }
+        const sub = submissionsApi.subscribeToSubmissionsChanges({
+          onInsert: (uiRow) => {
+            setSubmissions((prev) => {
+              if (prev.some((s) => s.id === uiRow.id)) return prev;
+              return [uiRow, ...prev];
+            });
+          },
+          onUpdate: (uiRow) => {
+            setSubmissions((prev) => prev.map((s) => (s.id === uiRow.id ? { ...s, ...uiRow } : s)));
+          },
+          onDelete: (id) => {
+            setSubmissions((prev) => prev.filter((s) => s.id !== id));
+          }
+        });
+        unsub = () => sub.unsubscribe();
       }
+      bootstrap();
 
-      const sub = subscribeToSubmissionsChanges({
-        onInsert: (uiRow) => {
-          setSubmissions((prev) => {
-            if (prev.some((s) => s.id === uiRow.id)) return prev;
-            return [uiRow, ...prev];
-          });
-        },
-        onUpdate: (uiRow) => {
-          setSubmissions((prev) => prev.map((s) => (s.id === uiRow.id ? { ...s, ...uiRow } : s)));
-        },
-        onDelete: (id) => {
-          setSubmissions((prev) => prev.filter((s) => s.id !== id));
-        }
-      });
-
-      unsub = () => sub.unsubscribe();
+      return () => {
+        cancelled = true;
+        if (unsub) unsub();
+      };
     }
-
-    bootstrap();
-
-    return () => {
-      cancelled = true;
-      if (unsub) unsub();
-    };
+    // Local mode: just initialize to empty array (no-op)
+    return () => { };
   }, []);
 
   // PUBLIC_INTERFACE
@@ -103,7 +106,6 @@ function App() {
           ) : (
             <MentorDashboard submissions={submissions} setSubmissions={setSubmissions} />
           )}
-
           <footer className="mt-10 border-t border-slate-200/70 bg-white/60 backdrop-blur">
             <div className="mx-auto w-full max-w-6xl px-4 py-6 text-xs font-semibold text-slate-500 sm:px-6">
               <span className="text-tealbrand-700">T3Log</span>
@@ -128,7 +130,6 @@ function LoginScreen({ onSelectRole }) {
             <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-3xl bg-white/15 text-white shadow-[0_20px_50px_-20px_rgba(0,0,0,0.45)] ring-1 ring-white/25 backdrop-blur">
               <span className="text-lg font-black tracking-tight">T3</span>
             </div>
-
             <h1 className="text-balance text-4xl font-black tracking-tight text-white sm:text-5xl">
               Welcome to T3Log
             </h1>
@@ -152,7 +153,6 @@ function LoginScreen({ onSelectRole }) {
               onClick={() => onSelectRole("mentor")}
             />
           </div>
-
           <div className="mt-10 text-center text-xs font-semibold text-white/75">
             Choose a role to continue
           </div>
@@ -176,7 +176,6 @@ function RoleCard({ title, subtitle, icon, buttonLabel, onClick }) {
         <div className="absolute -left-20 -top-20 h-48 w-48 rounded-full bg-white/15 blur-2xl" />
         <div className="absolute -bottom-24 -right-24 h-60 w-60 rounded-full bg-tealbrand-200/25 blur-3xl" />
       </div>
-
       <div className="relative">
         <div className="flex items-start justify-between gap-4">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/15 text-white ring-1 ring-white/25">
@@ -186,12 +185,10 @@ function RoleCard({ title, subtitle, icon, buttonLabel, onClick }) {
             Role
           </div>
         </div>
-
         <h2 className="mt-5 text-xl font-extrabold tracking-tight text-white">
           {title}
         </h2>
         <p className="mt-2 text-sm font-semibold text-white/80">{subtitle}</p>
-
         <button
           type="button"
           onClick={onClick}
@@ -228,7 +225,6 @@ function GlassHeader({ onLogout }) {
             </div>
           </div>
         </div>
-
         <button
           type="button"
           onClick={onLogout}
@@ -263,13 +259,12 @@ function InternDashboard({ submissions, setSubmissions }) {
   const isEditModalOpen = Boolean(editingSubmission);
 
   // PUBLIC_INTERFACE
-  async function handleSubmit(e) {
-    /** Create a submission in Supabase and (optionally) upload the first file to Storage. */
+  function handleSubmit(e) {
+    /** Create a new local-only submission. */
     e.preventDefault();
 
     const trimmedTitle = title.trim();
     const trimmedDesc = description.trim();
-
     if (!trimmedTitle || !trimmedDesc) return;
 
     const now = new Date();
@@ -289,39 +284,19 @@ function InternDashboard({ submissions, setSubmissions }) {
       size: typeof f.size === "number" ? f.size : 0
     }));
 
-    // Use the first file as the canonical uploaded artifact (keeps schema simple with file_url).
-    const firstFile = rawFiles[0] || null;
-
-    const { data, error } = await createSubmissionWithOptionalUpload({
-      payload: {
-        // Note: email is not collected in the current UI; store placeholder to satisfy required column.
-        // If you later add an "Intern Email" input, wire it here.
-        intern_email: "intern@example.com",
-        title: trimmedTitle,
-        description: trimmedDesc,
-        status: "none"
-      },
-      file: firstFile
-    });
-
-    if (error) {
-      // Keep UI functional even if Supabase fails; fall back to local-only state.
-      // eslint-disable-next-line no-console
-      console.error("Supabase submission/upload failed:", error);
-    }
-
+    // In local mode, fileUrl is always null
     setSubmissions((prev) => [
       {
-        id: data?.id || cryptoLikeId(),
+        id: cryptoLikeId(),
         title: trimmedTitle,
         description: trimmedDesc,
         timestampIso,
         timestampLabel,
         files: uiFiles,
-        status: data?.status || "none",
+        status: "none",
         meeting: null,
-        mentorRemark: data?.mentor_remark ?? undefined,
-        fileUrl: data?.file_url || null
+        mentorRemark: undefined,
+        fileUrl: null
       },
       ...prev
     ]);
@@ -370,7 +345,6 @@ function InternDashboard({ submissions, setSubmissions }) {
                     Fields: Work Title, Description, File Upload. Timestamp is captured on submission.
                   </p>
                 </header>
-
                 <div className="px-5 py-5">
                   <form className="space-y-4" onSubmit={handleSubmit}>
                     <div>
@@ -504,52 +478,23 @@ function MentorDashboard({ submissions, setSubmissions }) {
   }, [meetingTargetId, submissions]);
 
   // PUBLIC_INTERFACE
-  async function markReviewed(id) {
-    /** Persist status update to Supabase; realtime will fan out to intern view. */
+  function markReviewed(id) {
     if (!id) return;
-
-    // Optimistic UI update
-    const prevSnapshot = submissions;
+    // Local-only: just update local state
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: "reviewed" } : s))
     );
-
-    const { error } = await updateSubmissionFromUi(id, { status: "reviewed" });
-    if (error) {
-      // eslint-disable-next-line no-console
-      console.error("Failed to mark reviewed:", error);
-      // Rollback to previous snapshot (realtime may still correct later, but this is safest)
-      setSubmissions(prevSnapshot);
-    }
   }
 
   // PUBLIC_INTERFACE
-  async function scheduleMeeting(id, meeting) {
-    /**
-     * Persist meeting scheduling in a schema-compatible way.
-     * Current DB schema doesn't include meeting fields, so we:
-     * - store status = "meeting_scheduled"
-     * - keep meeting details in local UI state (for now)
-     *
-     * This keeps intern view in sync about the "meeting scheduled" state in realtime.
-     */
+  function scheduleMeeting(id, meeting) {
     if (!id) return;
-
-    const prevSnapshot = submissions;
-
-    // Optimistic UI update (status + meeting)
+    // Local-only: update status+meeting locally
     setSubmissions((prev) =>
       prev.map((s) =>
         s.id === id ? { ...s, meeting, status: "meeting_scheduled" } : s
       )
     );
-
-    const { error } = await updateSubmissionFromUi(id, { status: "meeting_scheduled" });
-    if (error) {
-      // eslint-disable-next-line no-console
-      console.error("Failed to persist meeting scheduling:", error);
-      setSubmissions(prevSnapshot);
-    }
   }
 
   // PUBLIC_INTERFACE
@@ -565,25 +510,12 @@ function MentorDashboard({ submissions, setSubmissions }) {
   }
 
   // PUBLIC_INTERFACE
-  async function commitMentorRemark(id) {
+  function commitMentorRemark(id) {
     const note = (modalDraft || "").trim();
     if (!id || !note) return;
-
-    const prevSnapshot = submissions;
-
-    // Optimistic UI update
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, mentorRemark: note } : s))
     );
-
-    const { error } = await updateSubmissionFromUi(id, { mentorRemark: note });
-    if (error) {
-      // eslint-disable-next-line no-console
-      console.error("Failed to persist mentor remark:", error);
-      setSubmissions(prevSnapshot);
-      return;
-    }
-
     closeRemarkModal();
   }
 
@@ -623,7 +555,6 @@ function MentorDashboard({ submissions, setSubmissions }) {
             Review intern submissions as cards. Actions live inside each work card.
           </p>
         </div>
-
         {submissions.length === 0 ? (
           <EmptyState
             title="No intern submissions yet"
@@ -646,7 +577,6 @@ function MentorDashboard({ submissions, setSubmissions }) {
             ))}
           </div>
         )}
-
         <MeetingModal
           open={Boolean(meetingTarget)}
           submission={meetingTarget}
@@ -658,7 +588,6 @@ function MentorDashboard({ submissions, setSubmissions }) {
           }}
         />
       </main>
-
       <MentorRemarkModal
         open={Boolean(remarkModal.openFor)}
         value={modalDraft}
@@ -829,7 +758,6 @@ function SubmissionCard({
     >
       {/* Mentor view: absolute Remark button at top-right */}
       {variant === "mentor" ? MentorRemarkButtonSlot : null}
-
       {/* Header spacing refined to match requested layout (name/date/files areas) */}
       <div className="flex items-start justify-between gap-4 pr-14">
         <div className="min-w-0">
@@ -839,7 +767,6 @@ function SubmissionCard({
           <h3 className="mt-1 truncate text-sm font-black text-slate-900">
             {submission.title}
           </h3>
-
           <div className="mt-3 text-[11px] font-extrabold uppercase tracking-wide text-slate-600">
             Submitted
           </div>
@@ -847,17 +774,14 @@ function SubmissionCard({
             {submission.timestampLabel}
           </div>
         </div>
-
         <div className="flex flex-wrap items-center justify-end gap-2">
           {statusBadge}
           {hasMeeting ? <StatusBadge kind="alert" label="Meeting Scheduled" /> : null}
         </div>
       </div>
-
       <p className="mt-4 text-sm font-semibold text-slate-800">
         {submission.description}
       </p>
-
       <div className="mt-5 space-y-2">
         <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-600">
           Files
@@ -920,7 +844,6 @@ function SubmissionCard({
           </div>
         )}
       </div>
-
       {submission.meeting ? (
         <div className="mt-5 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
           <div className="text-xs font-extrabold uppercase tracking-wide text-amber-900">
@@ -934,7 +857,6 @@ function SubmissionCard({
           </div>
         </div>
       ) : null}
-
       {variant === "intern" ? (
         <div className="mt-6 flex items-center justify-end gap-2">
           <IconButton label="Edit" onClick={onEdit}>
@@ -955,7 +877,6 @@ function SubmissionCard({
           </ActionButton>
         </div>
       )}
-
       {/* Mentor remark stays in-card and is the only display location */}
       {mentorRemarkBottom ? (
         <div
@@ -1246,7 +1167,6 @@ function MeetingModal({ open, submission, onClose, onSchedule }) {
             </button>
           </div>
         </header>
-
         <div className="px-5 py-5">
           <form
             className="space-y-4"
