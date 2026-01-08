@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import { createSubmissionWithOptionalUpload } from "./utils/submissionsApi";
+import {
+  createSubmissionWithOptionalUpload,
+  listSubmissionsAsUi,
+  subscribeToSubmissionsChanges,
+  updateSubmissionFromUi
+} from "./utils/submissionsApi";
 
 /**
  * T3Log UI (frontend-only) — Spec implementation
@@ -27,10 +32,52 @@ function App() {
   const [role, setRole] = useState(null);
 
   /**
-   * Shared in-memory submissions store
-   * This is the single source of truth so mentor changes instantly reflect for interns.
+   * Shared submissions store (Supabase-backed + realtime).
+   * This remains the single source of truth so mentor changes instantly reflect for interns.
    */
   const [submissions, setSubmissions] = useState([]);
+
+  // Initial load + realtime sync
+  useEffect(() => {
+    let unsub = null;
+    let cancelled = false;
+
+    async function bootstrap() {
+      const { data, error } = await listSubmissionsAsUi();
+      if (!cancelled) {
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.error("Failed to load submissions from Supabase:", error);
+        } else if (Array.isArray(data)) {
+          setSubmissions(data);
+        }
+      }
+
+      const sub = subscribeToSubmissionsChanges({
+        onInsert: (uiRow) => {
+          setSubmissions((prev) => {
+            if (prev.some((s) => s.id === uiRow.id)) return prev;
+            return [uiRow, ...prev];
+          });
+        },
+        onUpdate: (uiRow) => {
+          setSubmissions((prev) => prev.map((s) => (s.id === uiRow.id ? { ...s, ...uiRow } : s)));
+        },
+        onDelete: (id) => {
+          setSubmissions((prev) => prev.filter((s) => s.id !== id));
+        }
+      });
+
+      unsub = () => sub.unsubscribe();
+    }
+
+    bootstrap();
+
+    return () => {
+      cancelled = true;
+      if (unsub) unsub();
+    };
+  }, []);
 
   // PUBLIC_INTERFACE
   function handleLogout() {
@@ -457,17 +504,52 @@ function MentorDashboard({ submissions, setSubmissions }) {
   }, [meetingTargetId, submissions]);
 
   // PUBLIC_INTERFACE
-  function markReviewed(id) {
+  async function markReviewed(id) {
+    /** Persist status update to Supabase; realtime will fan out to intern view. */
+    if (!id) return;
+
+    // Optimistic UI update
+    const prevSnapshot = submissions;
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: "reviewed" } : s))
     );
+
+    const { error } = await updateSubmissionFromUi(id, { status: "reviewed" });
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to mark reviewed:", error);
+      // Rollback to previous snapshot (realtime may still correct later, but this is safest)
+      setSubmissions(prevSnapshot);
+    }
   }
 
   // PUBLIC_INTERFACE
-  function scheduleMeeting(id, meeting) {
+  async function scheduleMeeting(id, meeting) {
+    /**
+     * Persist meeting scheduling in a schema-compatible way.
+     * Current DB schema doesn't include meeting fields, so we:
+     * - store status = "meeting_scheduled"
+     * - keep meeting details in local UI state (for now)
+     *
+     * This keeps intern view in sync about the "meeting scheduled" state in realtime.
+     */
+    if (!id) return;
+
+    const prevSnapshot = submissions;
+
+    // Optimistic UI update (status + meeting)
     setSubmissions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, meeting } : s))
+      prev.map((s) =>
+        s.id === id ? { ...s, meeting, status: "meeting_scheduled" } : s
+      )
     );
+
+    const { error } = await updateSubmissionFromUi(id, { status: "meeting_scheduled" });
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to persist meeting scheduling:", error);
+      setSubmissions(prevSnapshot);
+    }
   }
 
   // PUBLIC_INTERFACE
@@ -483,12 +565,25 @@ function MentorDashboard({ submissions, setSubmissions }) {
   }
 
   // PUBLIC_INTERFACE
-  function commitMentorRemark(id) {
+  async function commitMentorRemark(id) {
     const note = (modalDraft || "").trim();
     if (!id || !note) return;
+
+    const prevSnapshot = submissions;
+
+    // Optimistic UI update
     setSubmissions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, mentorRemark: note } : s))
     );
+
+    const { error } = await updateSubmissionFromUi(id, { mentorRemark: note });
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to persist mentor remark:", error);
+      setSubmissions(prevSnapshot);
+      return;
+    }
+
     closeRemarkModal();
   }
 
