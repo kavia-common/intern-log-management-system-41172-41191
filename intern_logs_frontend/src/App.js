@@ -397,10 +397,13 @@ function InternDashboard({ submissions, setSubmissions }) {
     /**
      * Live mode:
      * - DELETE the row in Supabase so the card is gone after refresh.
+     * - Optionally remove the uploaded file from Storage (intern-work) if file_url exists.
      * - Update local state immediately for snappy UX.
      * - Realtime DELETE will also reconcile other views.
      */
     if (!id) return;
+
+    const current = submissions.find((s) => s.id === id) || null;
 
     // Optimistic UI remove
     setSubmissions((prev) => prev.filter((s) => s.id !== id));
@@ -408,12 +411,22 @@ function InternDashboard({ submissions, setSubmissions }) {
 
     if (!USE_SUPABASE || !submissionsApi) return;
 
-    const { error } = await submissionsApi.deleteSubmission(id);
+    const { error, storageError } = await submissionsApi.deleteSubmission(id, {
+      removeStorage: true,
+      fileUrl: current?.fileUrl || null
+    });
+
+    if (storageError) {
+      // Non-fatal; the DB row can still be deleted successfully.
+      // eslint-disable-next-line no-console
+      console.warn("Deleted DB row but failed to remove storage object:", storageError);
+    }
+
     if (error) {
       // eslint-disable-next-line no-console
       console.error("Failed to delete submission in Supabase:", error);
 
-      // Hard refresh to reconcile UI with DB (card may come back if delete failed).
+      // Hard refresh to reconcile UI with DB (card may come back if delete failed due to RLS/policy).
       const { data, error: refreshError } = await submissionsApi.refreshSubmissionsAsUi();
       if (refreshError) {
         // eslint-disable-next-line no-console

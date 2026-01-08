@@ -130,6 +130,76 @@ function mapUiPatchToDbPatch(patch) {
   return dbPatch;
 }
 
+/**
+ * Attempt to determine the storage object's path from a Supabase public URL.
+ * Expected pattern for public buckets:
+ *   https://<project>.supabase.co/storage/v1/object/public/<bucket>/<objectPath>
+ *
+ * Returns: { bucket, objectPath } or null if not derivable.
+ */
+function parseSupabasePublicObjectUrl(url) {
+  if (!url) return null;
+
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split("/").filter(Boolean);
+
+    // storage/v1/object/public/<bucket>/<...objectPath>
+    const storageIdx = parts.indexOf("storage");
+    if (storageIdx < 0) return null;
+
+    const v1Idx = storageIdx + 1;
+    const objectIdx = storageIdx + 2;
+    const publicIdx = storageIdx + 3;
+    const bucketIdx = storageIdx + 4;
+
+    if (
+      parts[v1Idx] !== "v1" ||
+      parts[objectIdx] !== "object" ||
+      parts[publicIdx] !== "public"
+    ) {
+      return null;
+    }
+
+    const bucket = parts[bucketIdx];
+    const objectPathParts = parts.slice(bucketIdx + 1);
+    const objectPath = objectPathParts.join("/");
+    if (!bucket || !objectPath) return null;
+
+    return { bucket, objectPath };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Adds actionable guidance when a Supabase request fails due to RLS/policies.
+ */
+function decorateRlsGuidance(err, { action, tableName }) {
+  const msg = String(err?.message || err || "");
+  const looksLikeRls =
+    msg.toLowerCase().includes("row-level security") ||
+    msg.toLowerCase().includes("permission denied") ||
+    msg.toLowerCase().includes("not allowed") ||
+    msg.toLowerCase().includes("policy");
+
+  if (!looksLikeRls) return err;
+
+  const guidance =
+    `\n\nLikely cause: Supabase RLS policy missing for ${action} on public."${tableName}".` +
+    `\nFix in Supabase SQL editor (DEV/permissive example):` +
+    `\n\ncreate policy "allow ${action.toLowerCase()} all" on public."${tableName}"` +
+    `\nfor ${action.toLowerCase()} using (true);` +
+    `\n\n(Adjust conditions later for proper auth ownership.)`;
+
+  const enhanced = new Error(`${msg}${guidance}`);
+  // Preserve original metadata if present
+  enhanced.code = err?.code;
+  enhanced.details = err?.details;
+  enhanced.hint = err?.hint;
+  return enhanced;
+}
+
 // PUBLIC_INTERFACE
 export const listSubmissions = async () => {
   /** List submissions newest-first from public."log-creation". */
@@ -202,16 +272,51 @@ export const updateSubmissionFromUi = async (id, uiPatch) => {
 };
 
 // PUBLIC_INTERFACE
-export const deleteSubmission = async (id) => {
+export const deleteSubmission = async (id, opts = {}) => {
   /**
    * PUBLIC_INTERFACE
-   * Delete a submission row by id.
+   * Delete a submission row by id, and optionally delete the Storage file.
    *
-   * NOTE: Requires Supabase RLS policy allowing DELETE.
+   * Why this exists:
+   * - The user's bug ("deleted cards reappear after refresh") is usually caused by:
+   *   (a) the DB row never actually deleted (RLS policy missing for DELETE), or
+   *   (b) the UI only removed locally but refresh pulls from DB again.
+   *
+   * Options:
+   * - { removeStorage: boolean, fileUrl?: string }
+   *
+   * NOTE:
+   * - DB DELETE requires Supabase RLS policy allowing DELETE on public."log-creation".
+   * - Storage deletion requires appropriate policies on storage.objects for bucket intern-work.
    */
-  if (!id) return { error: new Error("Missing submission id") };
-  const { error } = await supabase.from(TABLE_NAME).delete().eq("id", id);
-  return { error };
+  const { removeStorage = true, fileUrl = null } = opts;
+
+  if (!id) return { error: new Error("Missing submission id"), storageError: null };
+
+  let storageError = null;
+
+  // Best effort: delete the storage object if we can derive its path and policies allow it.
+  if (removeStorage && fileUrl) {
+    const parsed = parseSupabasePublicObjectUrl(fileUrl);
+    if (parsed?.bucket === STORAGE_BUCKET && parsed.objectPath) {
+      const { error: rmError } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .remove([parsed.objectPath]);
+
+      if (rmError) {
+        // Non-fatal: we still want the DB row removed even if the file could not be removed.
+        storageError = rmError;
+      }
+    }
+  }
+
+  const { error: dbErrorRaw } = await supabase.from(TABLE_NAME).delete().eq("id", id);
+
+  const error = dbErrorRaw
+    ? decorateRlsGuidance(dbErrorRaw, { action: "DELETE", tableName: TABLE_NAME })
+    : null;
+
+  return { error, storageError };
 };
 
 // PUBLIC_INTERFACE
@@ -309,34 +414,46 @@ export const subscribeToSubmissionsChanges = ({ onInsert, onUpdate, onDelete }) 
    */
   const channel = supabase
     .channel(`realtime:public.${TABLE_NAME}`)
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: TABLE_NAME }, (payload) => {
-      try {
-        const row = payload?.new;
-        if (row && onInsert) onInsert(mapRowToUiSubmission(row));
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error("Realtime INSERT handler failed:", e);
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: TABLE_NAME },
+      (payload) => {
+        try {
+          const row = payload?.new;
+          if (row && onInsert) onInsert(mapRowToUiSubmission(row));
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error("Realtime INSERT handler failed:", e);
+        }
       }
-    })
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: TABLE_NAME }, (payload) => {
-      try {
-        const row = payload?.new;
-        if (row && onUpdate) onUpdate(mapRowToUiSubmission(row));
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error("Realtime UPDATE handler failed:", e);
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: TABLE_NAME },
+      (payload) => {
+        try {
+          const row = payload?.new;
+          if (row && onUpdate) onUpdate(mapRowToUiSubmission(row));
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error("Realtime UPDATE handler failed:", e);
+        }
       }
-    })
-    .on("postgres_changes", { event: "DELETE", schema: "public", table: TABLE_NAME }, (payload) => {
-      try {
-        const oldRow = payload?.old;
-        const id = oldRow?.id;
-        if (id && onDelete) onDelete(id);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error("Realtime DELETE handler failed:", e);
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: TABLE_NAME },
+      (payload) => {
+        try {
+          const oldRow = payload?.old;
+          const id = oldRow?.id;
+          if (id && onDelete) onDelete(id);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error("Realtime DELETE handler failed:", e);
+        }
       }
-    })
+    )
     .subscribe((status) => {
       // eslint-disable-next-line no-console
       console.log(`[realtime] ${TABLE_NAME} channel status:`, status);
