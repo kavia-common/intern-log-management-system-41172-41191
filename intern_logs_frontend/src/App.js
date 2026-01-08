@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-
+import { supabase } from "./utils/supabaseClient";
+console.debug("App.js mounted")
 // FEATURE FLAG: Use Supabase (set to true to re-enable Supabase)
 // All Supabase imports/references are wrapped with this flag
 const USE_SUPABASE = false;

@@ -6,6 +6,9 @@ const supabaseUrl =
 const supabaseAnonKey =
   process.env.REACT_APP_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
+console.debug("SB_URL:", supabaseUrl);
+console.debug("SB_KEY present?", !!supabaseAnonKey);
+
 if (!supabaseUrl || !supabaseAnonKey) {
   // Fail fast with actionable guidance
   throw new Error(
