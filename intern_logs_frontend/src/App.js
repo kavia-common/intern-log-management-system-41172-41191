@@ -394,10 +394,34 @@ function InternDashboard({ submissions, setSubmissions }) {
 
   // PUBLIC_INTERFACE
   async function deleteSubmission(id) {
-    // Preserve current UI/UX: allow deletion locally.
-    // If you want DB deletion later, add a delete RPC/policy and call supabase.from(TABLE).delete().
+    /**
+     * Live mode:
+     * - DELETE the row in Supabase so the card is gone after refresh.
+     * - Update local state immediately for snappy UX.
+     * - Realtime DELETE will also reconcile other views.
+     */
+    if (!id) return;
+
+    // Optimistic UI remove
     setSubmissions((prev) => prev.filter((s) => s.id !== id));
     if (editingSubmissionId === id) setEditingSubmissionId(null);
+
+    if (!USE_SUPABASE || !submissionsApi) return;
+
+    const { error } = await submissionsApi.deleteSubmission(id);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to delete submission in Supabase:", error);
+
+      // Hard refresh to reconcile UI with DB (card may come back if delete failed).
+      const { data, error: refreshError } = await submissionsApi.refreshSubmissionsAsUi();
+      if (refreshError) {
+        // eslint-disable-next-line no-console
+        console.error("Failed to refresh submissions after delete failure:", refreshError);
+      } else if (Array.isArray(data)) {
+        setSubmissions(data);
+      }
+    }
   }
 
   // PUBLIC_INTERFACE
@@ -909,11 +933,22 @@ function SubmissionCard({
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (submission.fileUrl) {
-                      window.open(submission.fileUrl, "_blank", "noopener,noreferrer");
+                  onClick={async () => {
+                    if (submission.fileUrl && submissionsApi?.downloadFileFromUrl) {
+                      const { error } = await submissionsApi.downloadFileFromUrl({
+                        url: submission.fileUrl,
+                        filename: f.name
+                      });
+                      if (error) {
+                        // eslint-disable-next-line no-console
+                        console.error("Download failed:", error);
+                        // As a last resort, open in a new tab (may preview inline depending on browser)
+                        window.open(submission.fileUrl, "_blank", "noopener,noreferrer");
+                      }
                       return;
                     }
+
+                    // Fallback: keep old placeholder behavior only when no actual file URL exists.
                     downloadPlaceholderFile(f.name);
                   }}
                   className={cx(
@@ -923,7 +958,7 @@ function SubmissionCard({
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
                   )}
                   aria-label={`Download ${f.name}`}
-                  title={submission.fileUrl ? "Open uploaded file" : "Download"}
+                  title={submission.fileUrl ? "Download uploaded file" : "Download"}
                 >
                   <DownloadIcon />
                 </button>
@@ -1116,9 +1151,17 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (submission.fileUrl) {
-                              window.open(submission.fileUrl, "_blank", "noopener,noreferrer");
+                          onClick={async () => {
+                            if (submission.fileUrl && submissionsApi?.downloadFileFromUrl) {
+                              const { error } = await submissionsApi.downloadFileFromUrl({
+                                url: submission.fileUrl,
+                                filename: f.name
+                              });
+                              if (error) {
+                                // eslint-disable-next-line no-console
+                                console.error("Download failed:", error);
+                                window.open(submission.fileUrl, "_blank", "noopener,noreferrer");
+                              }
                               return;
                             }
                             downloadPlaceholderFile(f.name);
@@ -1129,7 +1172,7 @@ function EditSubmissionModal({ open, submission, onClose, onImmediatePatch }) {
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-tealbrand-900"
                           )}
                           aria-label={`Download ${f.name}`}
-                          title={submission.fileUrl ? "Open uploaded file" : "Download"}
+                          title={submission.fileUrl ? "Download uploaded file" : "Download"}
                         >
                           <DownloadIcon />
                         </button>

@@ -16,7 +16,7 @@ import { supabase } from "./supabaseClient";
 
 const STORAGE_BUCKET = "intern-work";
 // IMPORTANT: Table name contains a hyphen, so it must be passed as a quoted identifier.
-const TABLE_NAME = 'log-creation';
+const TABLE_NAME = "log-creation";
 
 /**
  * Creates a deterministic-ish storage object path for the submission file.
@@ -39,6 +39,34 @@ function guessFilenameFromUrl(url) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Best-effort content-type guess from filename.
+ * This is used only as fallback if the server does not return Content-Type.
+ */
+function guessMimeFromFilename(name) {
+  const n = (name || "").toLowerCase();
+  if (n.endsWith(".pdf")) return "application/pdf";
+  if (n.endsWith(".png")) return "image/png";
+  if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+  if (n.endsWith(".gif")) return "image/gif";
+  if (n.endsWith(".webp")) return "image/webp";
+  if (n.endsWith(".svg")) return "image/svg+xml";
+  if (n.endsWith(".txt")) return "text/plain";
+  if (n.endsWith(".csv")) return "text/csv";
+  if (n.endsWith(".json")) return "application/json";
+  if (n.endsWith(".zip")) return "application/zip";
+  if (n.endsWith(".doc")) return "application/msword";
+  if (n.endsWith(".docx"))
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (n.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+  if (n.endsWith(".pptx"))
+    return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  if (n.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (n.endsWith(".xlsx"))
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  return "application/octet-stream";
 }
 
 /**
@@ -122,6 +150,16 @@ export const listSubmissionsAsUi = async () => {
 };
 
 // PUBLIC_INTERFACE
+export const refreshSubmissionsAsUi = async () => {
+  /**
+   * PUBLIC_INTERFACE
+   * Hard refresh: re-fetch from DB to guarantee UI matches persisted state.
+   * Useful after deletes and to recover from missed realtime events.
+   */
+  return listSubmissionsAsUi();
+};
+
+// PUBLIC_INTERFACE
 export const createSubmission = async (payload) => {
   /** Create a submission row. */
   const { data, error } = await supabase
@@ -164,6 +202,19 @@ export const updateSubmissionFromUi = async (id, uiPatch) => {
 };
 
 // PUBLIC_INTERFACE
+export const deleteSubmission = async (id) => {
+  /**
+   * PUBLIC_INTERFACE
+   * Delete a submission row by id.
+   *
+   * NOTE: Requires Supabase RLS policy allowing DELETE.
+   */
+  if (!id) return { error: new Error("Missing submission id") };
+  const { error } = await supabase.from(TABLE_NAME).delete().eq("id", id);
+  return { error };
+};
+
+// PUBLIC_INTERFACE
 export const uploadSubmissionFile = async (submissionId, file) => {
   /**
    * Upload a single file to Supabase Storage and return a public URL.
@@ -187,8 +238,6 @@ export const uploadSubmissionFile = async (submissionId, file) => {
 
   const objectPath = buildSubmissionObjectPath(submissionId, file);
 
-  // Patch: allow upsert:true to prevent silent overwrite issues in dev (can be made 'false' in prod)
-  // But here we use upsert false per the spec.
   const { error: uploadError } = await supabase.storage
     .from(STORAGE_BUCKET)
     .upload(objectPath, file, { upsert: false });
@@ -198,11 +247,7 @@ export const uploadSubmissionFile = async (submissionId, file) => {
   }
 
   // getPublicUrl returns { publicUrl: ... }
-  const { data: publicData } = supabase.storage
-    .from(STORAGE_BUCKET)
-    .getPublicUrl(objectPath);
-
-  // The correct property: publicData.publicUrl
+  const { data: publicData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(objectPath);
   const publicUrl = publicData?.publicUrl || null;
 
   if (!publicUrl) {
@@ -215,7 +260,6 @@ export const uploadSubmissionFile = async (submissionId, file) => {
     };
   }
 
-  // Double-check: If intern-work is public, this URL should be directly reachable.
   return { publicUrl, objectPath, error: null };
 };
 
@@ -250,7 +294,7 @@ export const createSubmissionWithOptionalUpload = async ({ payload, file }) => {
   if (updateError || !updated) {
     return { data: created, error: updateError };
   }
-  // Success: return DB row with file_url set.
+
   return { data: updated, error: null };
 };
 
@@ -265,46 +309,34 @@ export const subscribeToSubmissionsChanges = ({ onInsert, onUpdate, onDelete }) 
    */
   const channel = supabase
     .channel(`realtime:public.${TABLE_NAME}`)
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: TABLE_NAME },
-      (payload) => {
-        try {
-          const row = payload?.new;
-          if (row && onInsert) onInsert(mapRowToUiSubmission(row));
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.error("Realtime INSERT handler failed:", e);
-        }
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: TABLE_NAME }, (payload) => {
+      try {
+        const row = payload?.new;
+        if (row && onInsert) onInsert(mapRowToUiSubmission(row));
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error("Realtime INSERT handler failed:", e);
       }
-    )
-    .on(
-      "postgres_changes",
-      { event: "UPDATE", schema: "public", table: TABLE_NAME },
-      (payload) => {
-        try {
-          const row = payload?.new;
-          if (row && onUpdate) onUpdate(mapRowToUiSubmission(row));
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.error("Realtime UPDATE handler failed:", e);
-        }
+    })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: TABLE_NAME }, (payload) => {
+      try {
+        const row = payload?.new;
+        if (row && onUpdate) onUpdate(mapRowToUiSubmission(row));
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error("Realtime UPDATE handler failed:", e);
       }
-    )
-    .on(
-      "postgres_changes",
-      { event: "DELETE", schema: "public", table: TABLE_NAME },
-      (payload) => {
-        try {
-          const oldRow = payload?.old;
-          const id = oldRow?.id;
-          if (id && onDelete) onDelete(id);
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.error("Realtime DELETE handler failed:", e);
-        }
+    })
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: TABLE_NAME }, (payload) => {
+      try {
+        const oldRow = payload?.old;
+        const id = oldRow?.id;
+        if (id && onDelete) onDelete(id);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error("Realtime DELETE handler failed:", e);
       }
-    )
+    })
     .subscribe((status) => {
       // eslint-disable-next-line no-console
       console.log(`[realtime] ${TABLE_NAME} channel status:`, status);
@@ -323,4 +355,47 @@ export const subscribeToSubmissionsChanges = ({ onInsert, onUpdate, onDelete }) 
 export const mapDbRowToUi = (row) => {
   /** Exported for cases where App.js wants to map returned rows directly. */
   return mapRowToUiSubmission(row);
+};
+
+// PUBLIC_INTERFACE
+export const downloadFileFromUrl = async ({ url, filename }) => {
+  /**
+   * PUBLIC_INTERFACE
+   * Download the actual file bytes from a public URL, and trigger a browser download.
+   *
+   * Why: opening the URL in a new tab often works, but can result in inline preview
+   * or a confusing filename. Fetch->blob->a[download] gives consistent behavior and
+   * ensures the saved file is not placeholder content.
+   */
+  if (!url) return { error: new Error("Missing file URL") };
+
+  try {
+    const response = await fetch(url, { method: "GET" });
+    if (!response.ok) {
+      return { error: new Error(`Failed to download file (HTTP ${response.status})`) };
+    }
+
+    const contentType =
+      response.headers.get("content-type") ||
+      guessMimeFromFilename(filename) ||
+      "application/octet-stream";
+
+    const blobData = await response.blob();
+    const blob = blobData.type ? blobData : new Blob([blobData], { type: contentType });
+
+    const safeName = filename || guessFilenameFromUrl(url) || "download";
+    const objectUrl = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = safeName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    return { error: null };
+  } catch (e) {
+    return { error: e instanceof Error ? e : new Error("Download failed") };
+  }
 };
