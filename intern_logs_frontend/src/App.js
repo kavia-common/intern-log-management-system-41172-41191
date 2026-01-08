@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { createSubmissionWithOptionalUpload } from "./utils/submissionsApi";
 
 /**
  * T3Log UI (frontend-only) — Spec implementation
@@ -215,7 +216,8 @@ function InternDashboard({ submissions, setSubmissions }) {
   const isEditModalOpen = Boolean(editingSubmission);
 
   // PUBLIC_INTERFACE
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
+    /** Create a submission in Supabase and (optionally) upload the first file to Storage. */
     e.preventDefault();
 
     const trimmedTitle = title.trim();
@@ -233,23 +235,46 @@ function InternDashboard({ submissions, setSubmissions }) {
       minute: "2-digit"
     });
 
-    const files = Array.from(fileList || []).map((f) => ({
+    const rawFiles = Array.from(fileList || []);
+    const uiFiles = rawFiles.map((f) => ({
       id: cryptoLikeId(),
       name: f.name || "file",
       size: typeof f.size === "number" ? f.size : 0
     }));
 
+    // Use the first file as the canonical uploaded artifact (keeps schema simple with file_url).
+    const firstFile = rawFiles[0] || null;
+
+    const { data, error } = await createSubmissionWithOptionalUpload({
+      payload: {
+        // Note: email is not collected in the current UI; store placeholder to satisfy required column.
+        // If you later add an "Intern Email" input, wire it here.
+        intern_email: "intern@example.com",
+        title: trimmedTitle,
+        description: trimmedDesc,
+        status: "none"
+      },
+      file: firstFile
+    });
+
+    if (error) {
+      // Keep UI functional even if Supabase fails; fall back to local-only state.
+      // eslint-disable-next-line no-console
+      console.error("Supabase submission/upload failed:", error);
+    }
+
     setSubmissions((prev) => [
       {
-        id: cryptoLikeId(),
+        id: data?.id || cryptoLikeId(),
         title: trimmedTitle,
         description: trimmedDesc,
         timestampIso,
         timestampLabel,
-        files,
-        status: "none",
+        files: uiFiles,
+        status: data?.status || "none",
         meeting: null,
-        mentorRemark: undefined
+        mentorRemark: data?.mentor_remark ?? undefined,
+        fileUrl: data?.file_url || null
       },
       ...prev
     ]);
@@ -762,7 +787,15 @@ function SubmissionCard({
                 </div>
                 <button
                   type="button"
-                  onClick={() => downloadPlaceholderFile(f.name)}
+                  onClick={() => {
+                    // If we have a real uploaded file URL (Supabase Storage public URL), open it.
+                    // Otherwise, fall back to the placeholder download behavior.
+                    if (submission.fileUrl) {
+                      window.open(submission.fileUrl, "_blank", "noopener,noreferrer");
+                      return;
+                    }
+                    downloadPlaceholderFile(f.name);
+                  }}
                   className={cx(
                     "inline-flex items-center justify-center rounded-xl border bg-white px-3 py-2",
                     fileRowBorder,
@@ -770,7 +803,7 @@ function SubmissionCard({
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tealbrand-500 focus-visible:ring-offset-2"
                   )}
                   aria-label={`Download ${f.name}`}
-                  title="Download"
+                  title={submission.fileUrl ? "Open uploaded file" : "Download"}
                 >
                   <DownloadIcon />
                 </button>
